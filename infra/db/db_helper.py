@@ -54,16 +54,23 @@ class DatabaseHelper:
             return False
 
     def get_user_by_id(self, user_id: str) -> TbUser | None:
+        """根据用户 ID 查询用户。
+
+        Args:
+            user_id: 用户 ID。
+
+        Returns:
+            TbUser | None: 找到返回用户对象，未找到返回 None。
+
+        Raises:
+            DatabaseError: 查询失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
             user = session.query(TbUser).filter(TbUser.user_id == user_id).first()
-            if user:
-                return user
-            print(f"没有找到用户ID为 {user_id} 的记录")
-            return None
+            return user
         except Exception as exc:
-            print(f"查询失败: {exc}")
             raise DatabaseError(f"查询用户失败: {str(exc)}")
         finally:
             session.close()
@@ -359,6 +366,17 @@ class DatabaseHelper:
     def get_analysis_details_by_record_id(
         self, interview_record_analysis_id: int | str
     ) -> list[dict]:
+        """根据面试记录分析 ID 查询分析详情。
+
+        Args:
+            interview_record_analysis_id: 面试记录分析 ID。
+
+        Returns:
+            list[dict]: 分析详情列表，如果没有明细返回空列表。
+
+        Raises:
+            DatabaseError: 查询失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -367,20 +385,16 @@ class DatabaseHelper:
                 == interview_record_analysis_id
             ).all()
 
-            if details:
-                details_dict = [detail.__dict__ for detail in details]
-                for detail in details_dict:
-                    detail.pop("_sa_instance_state", None)
+            if not details:
+                return []
 
-                return details_dict
+            details_dict = [detail.__dict__ for detail in details]
+            for detail in details_dict:
+                detail.pop("_sa_instance_state", None)
 
-            print(
-                f"未找到与分析ID {interview_record_analysis_id} 相关的面试记录分析详情"
-            )
-            return []
+            return details_dict
         except Exception as exc:  # noqa: BLE001
-            print(f"查询面试记录分析详情失败: {exc}")
-            return []
+            raise DatabaseError(f"查询面试记录分析详情失败: {str(exc)}")
         finally:
             session.close()
 
