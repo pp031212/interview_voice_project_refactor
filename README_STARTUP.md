@@ -54,6 +54,8 @@ MYSQL_PASSWORD=...
 MYSQL_DATABASE_NAME=...
 ```
 
+本仓库不提交本地语音模型权重。模型下载与路径配置见 `MODEL_SETUP.md`。
+
 说明：
 - 推荐配置 `MODEL_*` 作为默认模型。
 - 若未配置 `MODEL_*`，也可仅配置 `EXTRACT_MODEL_*` 与/或 `REPORT_MODEL_*`；Worker 会在运行时自动回退，不会在导入阶段因 `MODEL_NAME=None` 崩溃。
