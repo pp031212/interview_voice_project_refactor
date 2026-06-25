@@ -12,6 +12,17 @@ load_dotenv()
 load_dotenv(get_file_path(".env"))
 
 
+def _get_int_env(key: str, default: int) -> int:
+    """从环境变量读取整数值，解析失败时返回默认值。"""
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return default
+
+
 @dataclass(frozen=True)
 class AppConfig:
     api_base_url: str
@@ -33,6 +44,7 @@ class AppConfig:
     mysql_user: str | None
     mysql_password: str | None
     mysql_database_name: str | None
+    worker_max_retries: int
 
 
 def get_config() -> AppConfig:
@@ -52,8 +64,9 @@ def get_config() -> AppConfig:
         voice_model_path=os.getenv("VOICE_MODEL_PATH"),
         voice_vad_model_path=os.getenv("VOICE_VAD_MODEL_PATH"),
         mysql_host=os.getenv("MYSQL_HOST"),
-        mysql_port=int(os.getenv("MYSQL_PORT", "3306")),
+        mysql_port=_get_int_env("MYSQL_PORT", 3306),
         mysql_user=os.getenv("MYSQL_USER"),
         mysql_password=os.getenv("MYSQL_PASSWORD"),
         mysql_database_name=os.getenv("MYSQL_DATABASE_NAME"),
+        worker_max_retries=_get_int_env("WORKER_MAX_RETRIES", 3),
     )

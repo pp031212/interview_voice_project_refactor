@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from datetime import datetime
 
@@ -177,6 +178,45 @@ class DatabaseHelper:
         finally:
             session.close()
 
+    # 重试元数据解析
+
+    @staticmethod
+    def _parse_retry_info(processing_tips: str | None) -> tuple[int, bool]:
+        """从 processing_tips 中解析重试次数和是否可重试。
+
+        解析格式：
+          - 重试次数: ``重试次数: X/Y``
+          - 可重试标记: 包含 ``临时错误（可重试）`` 视为可重试；
+            包含 ``永久错误（需人工介入）`` 视为不可重试；
+            无标记的历史记录按可重试处理。
+
+        Args:
+            processing_tips: processing_tips 字段值。
+
+        Returns:
+            (retry_count, is_retryable): 解析失败时 retry_count 默认 0。
+        """
+        if not processing_tips:
+            return 0, True
+
+        # 解析重试次数
+        retry_count = 0
+        match = re.search(r"重试次数:\s*(\d+)", processing_tips)
+        if match:
+            try:
+                retry_count = int(match.group(1))
+            except (ValueError, TypeError):
+                retry_count = 0
+
+        # 判断是否可重试
+        if "永久错误（需人工介入）" in processing_tips:
+            is_retryable = False
+        else:
+            # 包含 "临时错误（可重试）" 或无标记的历史记录，均按可重试处理
+            is_retryable = True
+
+        return retry_count, is_retryable
+
     # 状态流转便捷方法
 
     def mark_interview_record_processing(
@@ -218,19 +258,27 @@ class DatabaseHelper:
         })
 
     def mark_interview_record_failed(
-        self, record_id: int | str, error_message: str, is_retryable: bool
+        self,
+        record_id: int | str,
+        error_message: str,
+        is_retryable: bool,
+        retry_count: int = 0,
+        max_retries: int = 3,
     ) -> bool:
         """将面试记录标记为处理失败。
 
-        失败提示格式保持与 Worker 原有格式一致：
+        失败提示格式：
           第一行：处理失败: <error_message>
           第二行：错误类型: 临时错误（可重试）/ 永久错误（需人工介入）
-          第三行：提示: 修复问题后重置记录，将从断点继续
+          第三行：重试次数: <retry_count>/<max_retries>
+          第四行：提示: 修复问题后重置记录，将从断点继续
 
         Args:
             record_id: 面试记录 ID。
             error_message: 错误信息。
             is_retryable: 是否可重试。
+            retry_count: 当前重试次数（默认 0）。
+            max_retries: 最大重试次数（默认 3）。
 
         Returns:
             bool: 更新成功返回 True。
@@ -243,6 +291,7 @@ class DatabaseHelper:
         processing_tips = (
             f"处理失败: {error_message}\n"
             f"错误类型: {error_type}\n"
+            f"重试次数: {retry_count}/{max_retries}\n"
             "提示: 修复问题后重置记录，将从断点继续"
         )
         return self.update_interview_record(record_id, {
@@ -273,17 +322,28 @@ class DatabaseHelper:
 
     # 原子认领
 
-    def claim_next_interview_record(self) -> tuple[dict | None, bool]:
+    def claim_next_interview_record(
+        self, max_retries: int = 3
+    ) -> tuple[dict | None, bool]:
         """原子认领下一条待处理的面试记录。
 
         优先认领失败记录（FAILED），其次认领待处理记录（PENDING）。
         使用条件更新保证原子性，避免多 Worker 并发时重复处理同一条记录。
         如果候选记录被其他 Worker 抢占，会继续尝试下一条候选。
 
+        对 FAILED 记录的重试策略：
+          - 永久错误（需人工介入）：跳过，不自动重试。
+          - 重试次数 >= max_retries：跳过，次数已耗尽。
+          - 可重试且未超限：认领并将 retry_count 递增 1。
+
+        Args:
+            max_retries: 最大重试次数（默认 3）。
+
         Returns:
             tuple: (record_dict, from_failed)
-                - record_dict: 认领成功的记录字典，如果没有可认领记录则为 None
-                - from_failed: 是否从失败状态认领的（用于打印日志）
+                - record_dict: 认领成功的记录字典，如果没有可认领记录则为 None。
+                  成功认领的 FAILED 记录会额外携带 retry_count 和 max_retries。
+                - from_failed: 是否从失败状态认领的（用于打印日志）。
 
         Raises:
             DatabaseError: 数据库查询或更新失败时抛出。
@@ -292,13 +352,21 @@ class DatabaseHelper:
         session = self.Session()
         try:
             # 1. 优先尝试认领失败记录
-            result = self._try_claim_by_status(session, expected_status=InterviewProcessingStatus.FAILED)
+            result = self._try_claim_by_status(
+                session,
+                expected_status=InterviewProcessingStatus.FAILED,
+                max_retries=max_retries,
+            )
             if result is not None:
                 record_dict, from_failed = result
                 return record_dict, from_failed
 
-            # 2. 如果没有失败记录或全部被抢占，尝试认领待处理记录
-            result = self._try_claim_by_status(session, expected_status=InterviewProcessingStatus.PENDING)
+            # 2. 如果没有可重试的失败记录，尝试认领待处理记录
+            result = self._try_claim_by_status(
+                session,
+                expected_status=InterviewProcessingStatus.PENDING,
+                max_retries=max_retries,
+            )
             if result is not None:
                 record_dict, from_failed = result
                 return record_dict, from_failed
@@ -317,13 +385,20 @@ class DatabaseHelper:
             session.close()
 
     def _try_claim_by_status(
-        self, session, expected_status: int
+        self, session, expected_status: int, max_retries: int = 3
     ) -> tuple[dict, bool] | None:
         """尝试认领指定状态的记录。
+
+        对 FAILED 记录会检查重试策略：
+          - 永久错误或次数耗尽的候选会被跳过并加入 excluded_ids。
+          - 可重试的候选认领后 retry_count 递增 1。
+
+        对 PENDING 记录保持原有逻辑不变。
 
         Args:
             session: 数据库会话。
             expected_status: 期望的处理状态（InterviewProcessingStatus 枚举值）。
+            max_retries: 最大重试次数。
 
         Returns:
             tuple[dict, bool] | None: 认领成功返回 (record_dict, from_failed)，否则返回 None。
@@ -350,13 +425,29 @@ class DatabaseHelper:
             if not candidate:
                 return None
 
+            # 对 FAILED 记录检查重试策略
+            if from_failed:
+                retry_count, is_retryable = self._parse_retry_info(
+                    candidate.processing_tips
+                )
+                if not is_retryable or retry_count >= max_retries:
+                    # 永久错误或次数耗尽，跳过该候选
+                    excluded_ids.add(candidate.id)
+                    continue
+                # 可重试且未超限：认领时递增 retry_count
+                next_retry_count = retry_count + 1
+                claim_tips = f"正在处理中... (重试 {next_retry_count}/{max_retries})"
+            else:
+                next_retry_count = 0
+                claim_tips = "正在处理中..."
+
             # 使用条件更新进行原子认领
             result = session.query(TbInterviewRecordingAnalysis).filter(
                 TbInterviewRecordingAnalysis.id == candidate.id,
                 TbInterviewRecordingAnalysis.processing_status == expected_status,
             ).update({
                 TbInterviewRecordingAnalysis.processing_status: InterviewProcessingStatus.PROCESSING,
-                TbInterviewRecordingAnalysis.processing_tips: "正在处理中...",
+                TbInterviewRecordingAnalysis.processing_tips: claim_tips,
             })
 
             session.commit()
@@ -371,6 +462,9 @@ class DatabaseHelper:
                 if claimed_record:
                     record_dict = claimed_record.__dict__.copy()
                     record_dict.pop("_sa_instance_state", None)
+                    if from_failed:
+                        record_dict["retry_count"] = next_retry_count
+                        record_dict["max_retries"] = max_retries
                     return record_dict, from_failed
 
             # 记录被其他 Worker 抢占，排除该 ID 后继续尝试

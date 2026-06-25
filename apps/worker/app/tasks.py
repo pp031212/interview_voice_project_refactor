@@ -5,6 +5,7 @@ import time
 
 from sqlalchemy.exc import OperationalError
 
+from core.config import get_config
 from core.utils.path_utils import get_file_path
 from core.utils.time_utils import get_datetime_str_from_datetime
 from core.worker_exception_handler import handle_worker_exception
@@ -56,9 +57,12 @@ def run_loop() -> None:
     while True:
         try:
             db_helper = get_my_db_helper()
+            max_retries = get_config().worker_max_retries
 
             # 使用原子认领方法获取下一条待处理记录
-            interview_record, from_failed = db_helper.claim_next_interview_record()
+            interview_record, from_failed = db_helper.claim_next_interview_record(
+                max_retries=max_retries
+            )
 
             if interview_record:
                 record_id = interview_record['id']
@@ -113,7 +117,11 @@ def run_loop() -> None:
 
                     try:
                         db_helper = get_my_db_helper()
-                        db_helper.mark_interview_record_failed(record_id, error_message, is_retryable)
+                        retry_count = interview_record.get("retry_count", 0)
+                        db_helper.mark_interview_record_failed(
+                            record_id, error_message, is_retryable,
+                            retry_count=retry_count, max_retries=max_retries,
+                        )
                         print(f"\n✓ 已将面试记录 {record_id} 标记为失败状态")
                         print("✓ 检查点已保留，修复问题后重置记录将从断点继续")
                         print("  使用命令: python scripts/reset_failed_records.py")
