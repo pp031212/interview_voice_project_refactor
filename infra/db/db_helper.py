@@ -5,7 +5,7 @@ import re
 
 from datetime import datetime
 
-from sqlalchemy import create_engine, desc, text
+from sqlalchemy import create_engine, desc, func, text
 from sqlalchemy.orm import sessionmaker
 
 from core.db_config import DbConfig, get_db_config
@@ -811,6 +811,134 @@ class DatabaseHelper:
         except Exception as exc:  # noqa: BLE001
             session.rollback()
             raise DatabaseError(f"清理 ASR 分片缓存失败: {str(exc)}")
+        finally:
+            session.close()
+
+    def get_asr_segment_cache_status(
+        self, record_id: int | str | None = None
+    ) -> list[dict]:
+        """查询 ASR 分片缓存状态（按 record_id 聚合）。
+
+        Args:
+            record_id: 指定面试记录 ID；为 None 时查询全部。
+
+        Returns:
+            list[dict]: 每项包含 record_id, segment_count,
+                first_update_time, last_update_time。
+
+        Raises:
+            DatabaseError: 查询失败时抛出。
+        """
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            query = session.query(
+                TbAsrSegmentCache.record_id,
+                func.count(TbAsrSegmentCache.id).label("segment_count"),
+                func.min(TbAsrSegmentCache.update_time).label("first_update_time"),
+                func.max(TbAsrSegmentCache.update_time).label("last_update_time"),
+            ).group_by(TbAsrSegmentCache.record_id)
+
+            if record_id is not None:
+                query = query.filter(
+                    TbAsrSegmentCache.record_id == int(record_id)
+                )
+
+            query = query.order_by(TbAsrSegmentCache.record_id.asc())
+            rows = query.all()
+
+            result: list[dict] = []
+            for row in rows:
+                result.append(
+                    {
+                        "record_id": row.record_id,
+                        "segment_count": row.segment_count,
+                        "first_update_time": row.first_update_time,
+                        "last_update_time": row.last_update_time,
+                    }
+                )
+            return result
+        except DatabaseError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise DatabaseError(f"查询 ASR 分片缓存状态失败: {str(exc)}")
+        finally:
+            session.close()
+
+    def clear_expired_asr_segment_cache(self, cutoff_time: datetime) -> int:
+        """清理过期的 ASR 分片缓存（update_time 早于 cutoff_time 的记录）。
+
+        Args:
+            cutoff_time: 截止时间，早于此时间的记录将被删除。
+
+        Returns:
+            int: 删除的记录条数。
+
+        Raises:
+            DatabaseError: 清理失败时抛出。
+        """
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            deleted_count = (
+                session.query(TbAsrSegmentCache)
+                .filter(TbAsrSegmentCache.update_time < cutoff_time)
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            return deleted_count
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            raise DatabaseError(f"清理过期 ASR 分片缓存失败: {str(exc)}")
+        finally:
+            session.close()
+
+    def get_expired_asr_segment_cache_status(
+        self, cutoff_time: datetime
+    ) -> list[dict]:
+        """查询过期 ASR 分片缓存状态（按 record_id 聚合）。
+
+        Args:
+            cutoff_time: 截止时间，早于此时间的记录视为过期。
+
+        Returns:
+            list[dict]: 每项包含 record_id, expired_segment_count,
+                first_update_time, last_update_time。
+
+        Raises:
+            DatabaseError: 查询失败时抛出。
+        """
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            rows = (
+                session.query(
+                    TbAsrSegmentCache.record_id,
+                    func.count(TbAsrSegmentCache.id).label("expired_segment_count"),
+                    func.min(TbAsrSegmentCache.update_time).label("first_update_time"),
+                    func.max(TbAsrSegmentCache.update_time).label("last_update_time"),
+                )
+                .filter(TbAsrSegmentCache.update_time < cutoff_time)
+                .group_by(TbAsrSegmentCache.record_id)
+                .order_by(TbAsrSegmentCache.record_id.asc())
+                .all()
+            )
+
+            result: list[dict] = []
+            for row in rows:
+                result.append(
+                    {
+                        "record_id": row.record_id,
+                        "expired_segment_count": int(row.expired_segment_count or 0),
+                        "first_update_time": row.first_update_time,
+                        "last_update_time": row.last_update_time,
+                    }
+                )
+            return result
+        except DatabaseError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise DatabaseError(f"查询过期 ASR 分片缓存状态失败: {str(exc)}")
         finally:
             session.close()
 

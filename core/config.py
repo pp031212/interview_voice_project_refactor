@@ -46,6 +46,7 @@ class AppConfig:
     mysql_database_name: str | None
     worker_max_retries: int
     worker_retry_backoff_seconds: int
+    asr_resume_cache_ttl_days: int
 
 
 def get_config() -> AppConfig:
@@ -71,4 +72,5 @@ def get_config() -> AppConfig:
         mysql_database_name=os.getenv("MYSQL_DATABASE_NAME"),
         worker_max_retries=_get_int_env("WORKER_MAX_RETRIES", 3),
         worker_retry_backoff_seconds=_get_int_env("WORKER_RETRY_BACKOFF_SECONDS", 30),
+        asr_resume_cache_ttl_days=_get_int_env("ASR_RESUME_CACHE_TTL_DAYS", 7),
     )

@@ -136,6 +136,10 @@ LLM 客户端统一在 `core/llm.py` 懒加载初始化，配置来自 `.env`，
 1. 评分一致性：引入本地 Rubric 与规则聚合，降低不同模型评分漂移。
 2. ASR 术语准确率：引入术语词典/热词与二次纠错流程。
 3. 断点治理：为分片级断点增加 TTL 清理策略与可视化状态查询。
+   - 已完成脚本层能力：`scripts/manage_asr_resume_cache.py`（status / cleanup 子命令）
+   - DB 层：`DatabaseHelper.get_asr_segment_cache_status()` 和 `clear_expired_asr_segment_cache()`
+   - 配置：`ASR_RESUME_CACHE_TTL_DAYS`（默认 7 天）
+   - UI 可视化待后续推进
 
 ## 6. 2026-03-03 增量更新（断点粒度）
 
