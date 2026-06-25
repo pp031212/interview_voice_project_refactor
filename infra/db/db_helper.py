@@ -416,7 +416,17 @@ class DatabaseHelper:
             session.close()
 
     def get_asr_segment_cache(self, record_id: int | str) -> list[dict]:
-        """获取指定记录的 ASR 分片缓存（按分片序号升序）。"""
+        """获取指定记录的 ASR 分片缓存（按分片序号升序）。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            list[dict]: ASR 分片缓存列表，如果没有缓存返回空列表。
+
+        Raises:
+            DatabaseError: 查询失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -437,9 +447,10 @@ class DatabaseHelper:
                     }
                 )
             return result
+        except DatabaseError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            print(f"查询 ASR 分片缓存失败: {exc}")
-            return []
+            raise DatabaseError(f"查询 ASR 分片缓存失败: {str(exc)}")
         finally:
             session.close()
 
@@ -500,7 +511,17 @@ class DatabaseHelper:
             session.close()
 
     def get_extract_cache(self, record_id: int | str) -> list[dict] | None:
-        """获取指定记录的 Q&A 抽取缓存。"""
+        """获取指定记录的 Q&A 抽取缓存。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            list[dict] | None: Q&A 列表，如果没有缓存返回 None。
+
+        Raises:
+            DatabaseError: 查询失败或缓存数据损坏时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -511,13 +532,22 @@ class DatabaseHelper:
             )
             if not row:
                 return None
-            data = json.loads(row.qa_json)
-            if isinstance(data, list):
-                return data
-            return None
+
+            try:
+                data = json.loads(row.qa_json)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise DatabaseError(f"Q&A 抽取缓存数据损坏: {str(exc)}")
+
+            if not isinstance(data, list):
+                raise DatabaseError(
+                    f"Q&A 抽取缓存数据格式错误: 期望 list，实际 {type(data).__name__}"
+                )
+
+            return data
+        except DatabaseError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            print(f"查询 Q&A 抽取缓存失败: {exc}")
-            return None
+            raise DatabaseError(f"查询 Q&A 抽取缓存失败: {str(exc)}")
         finally:
             session.close()
 
@@ -567,7 +597,17 @@ class DatabaseHelper:
             session.close()
 
     def get_analysis_cache(self, record_id: int | str) -> dict[int, dict]:
-        """获取指定记录的逐题分析缓存，key 为 qa_index。"""
+        """获取指定记录的逐题分析缓存，key 为 qa_index。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            dict[int, dict]: 逐题分析缓存字典，如果没有缓存返回空字典。
+
+        Raises:
+            DatabaseError: 查询失败或缓存数据损坏时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -581,14 +621,23 @@ class DatabaseHelper:
             for row in rows:
                 try:
                     parsed = json.loads(row.qa_json)
-                except Exception:  # noqa: BLE001
-                    continue
-                if isinstance(parsed, dict):
-                    result[int(row.qa_index)] = parsed
+                except (json.JSONDecodeError, TypeError) as exc:
+                    raise DatabaseError(
+                        f"逐题分析缓存数据损坏 (qa_index={row.qa_index}): {str(exc)}"
+                    )
+
+                if not isinstance(parsed, dict):
+                    raise DatabaseError(
+                        f"逐题分析缓存数据格式错误 (qa_index={row.qa_index}): "
+                        f"期望 dict，实际 {type(parsed).__name__}"
+                    )
+
+                result[int(row.qa_index)] = parsed
             return result
+        except DatabaseError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            print(f"查询逐题分析缓存失败: {exc}")
-            return {}
+            raise DatabaseError(f"查询逐题分析缓存失败: {str(exc)}")
         finally:
             session.close()
 
