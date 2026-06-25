@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import json
+from fastapi import APIRouter, Depends, File, Form, UploadFile
+
+from pydantic import ValidationError as PydanticValidationError
+
+from app.deps import interview_service_dep
+from app.schemas.interviews import (
+    AddInterviewPayload,
+    AddRecordResponse,
+    ErrorResponse,
+    RecordIdPayload,
+    RecordResponse,
+    RecordsResponse,
+)
+from core.errors import ValidationError
+from services.interview_service import InterviewService
+
+router = APIRouter()
+
+@router.get("/interview_records")
+async def get_interview_records(
+    service: InterviewService = Depends(interview_service_dep),
+) -> RecordsResponse:
+    """Return all interview records.
+
+    Returns:
+        Response payload.
+    """
+    records = service.list_records()
+    return RecordsResponse(data=records)
+
+
+@router.get("/get_interview_records_by_record_id")
+async def get_interview_records_by_record_id(
+    json_data_str: str = Form(...),
+    service: InterviewService = Depends(interview_service_dep),
+) -> RecordResponse:
+    """Return interview record details by record id.
+
+    Args:
+        json_data_str: JSON string containing record_id.
+
+    Returns:
+        Response payload.
+    """
+    try:
+        payload = RecordIdPayload.model_validate_json(json_data_str)
+    except PydanticValidationError:
+        payload_dict = json.loads(json_data_str)
+        payload = RecordIdPayload.model_validate(payload_dict)
+
+    record_id = payload.record_id
+    record = service.get_record(record_id)  # Will raise RecordNotFoundError if not found
+    return RecordResponse(data=record)
+
+
+@router.post("/add_interview_record")
+async def add_interview_record(
+    json_data_str: str = Form(...),
+    file: UploadFile = File(...),
+    service: InterviewService = Depends(interview_service_dep),
+) -> AddRecordResponse:
+    """Add a new interview record and upload audio file.
+
+    Args:
+        json_data_str: JSON string containing form data.
+        file: Uploaded audio file.
+
+    Returns:
+        Response payload.
+    """
+    try:
+        payload = AddInterviewPayload.model_validate_json(json_data_str)
+    except PydanticValidationError:
+        payload_dict = json.loads(json_data_str)
+        payload = AddInterviewPayload.model_validate(payload_dict)
+
+    name = payload.name
+    company = payload.company
+    subject = payload.subject
+    interview_date_str = payload.interview_date_str
+
+    upload_info = service.save_upload(file=file, name=name, company=company)
+    record_id = service.create_record(
+        name=name,
+        company=company,
+        subject=subject,
+        interview_date_str=interview_date_str,
+        recording_url=upload_info.relative_path,
+    )
+
+    if record_id:
+        return AddRecordResponse(
+            success=True, message="面试记录已添加", record_id=record_id
+        )
+
+    raise ValidationError("添加面试记录失败")

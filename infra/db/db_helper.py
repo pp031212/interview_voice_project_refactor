@@ -1,0 +1,565 @@
+from __future__ import annotations
+
+import json
+
+from datetime import datetime
+
+from sqlalchemy import create_engine, desc, text
+from sqlalchemy.orm import sessionmaker
+
+from core.db_config import DbConfig, get_db_config
+from core.errors import DatabaseError, RecordNotFoundError
+from infra.db.model.base import Base
+from infra.db.model.tb_interview_recording_analysis import TbInterviewRecordingAnalysis
+from infra.db.model.tb_interview_recording_analysis_detail import (
+    TbInterviewRecordingAnalysisDetail,
+)
+from infra.db.model.tb_asr_segment_cache import TbAsrSegmentCache
+from infra.db.model.tb_interview_extract_cache import TbInterviewExtractCache
+from infra.db.model.tb_interview_analysis_cache import TbInterviewAnalysisCache
+from infra.db.model.tb_user import TbUser
+
+
+class DatabaseHelper:
+    def __init__(self, db_url: str) -> None:
+        self.engine = create_engine(
+            db_url,
+            pool_size=10,
+            max_overflow=20,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            connect_args={"connect_timeout": 10},
+        )
+        Session = sessionmaker(bind=self.engine)
+        self.Session = Session
+        self._tables_created = False
+
+    def _ensure_tables_created(self) -> None:
+        if not self._tables_created:
+            try:
+                Base.metadata.create_all(self.engine)
+                self._tables_created = True
+            except Exception as exc:
+                print(f"警告: 创建数据库表时出错: {exc}")
+                print("提示: 请确保 MySQL 服务已启动，并且配置正确")
+                raise DatabaseError(f"创建数据库表失败: {str(exc)}")
+
+    def _check_connection(self) -> bool:
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return True
+        except Exception as exc:
+            print(f"数据库连接失败: {exc}")
+            return False
+
+    def get_user_by_id(self, user_id: str) -> TbUser | None:
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            user = session.query(TbUser).filter(TbUser.user_id == user_id).first()
+            if user:
+                return user
+            print(f"没有找到用户ID为 {user_id} 的记录")
+            return None
+        except Exception as exc:
+            print(f"查询失败: {exc}")
+            raise DatabaseError(f"查询用户失败: {str(exc)}")
+        finally:
+            session.close()
+
+    def add_interview_record(
+        self,
+        name: str,
+        interview_time: datetime | None = None,
+        company_name: str | None = None,
+        recording_url: str | None = None,
+        subject: str | None = None,
+    ) -> int | None:
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            if interview_time is None:
+                interview_time = datetime.now()
+            if company_name is None or company_name == "":
+                company_name = "未知公司"
+            if recording_url is None:
+                recording_url = ""
+            if subject is None or subject == "":
+                subject = "未知学科"
+            processing_status = 0
+
+            new_record = TbInterviewRecordingAnalysis(
+                name=name,
+                interview_time=interview_time,
+                company_name=company_name,
+                recording_url=recording_url,
+                processing_status=processing_status,
+                subject=subject,
+            )
+
+            session.add(new_record)
+            session.commit()
+
+            print(
+                "面试记录已添加: "
+                f"姓名={name}, 面试时间={interview_time}, 公司={company_name}, 录音地址={recording_url}"
+            )
+            return new_record.id
+        except Exception as exc:  # noqa: BLE001
+            print(f"添加面试记录失败: {exc}")
+            session.rollback()
+            return None
+        finally:
+            session.close()
+
+    def update_interview_record(self, record_id: int | str, update_fields: dict) -> None:
+        if not record_id:
+            print("面试记录ID不能为空")
+            return
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            record = session.query(TbInterviewRecordingAnalysis).filter(
+                TbInterviewRecordingAnalysis.id == record_id
+            ).first()
+
+            if record:
+                for field, value in update_fields.items():
+                    if hasattr(record, field):
+                        setattr(record, field, value)
+                    else:
+                        print(f"字段 {field} 不存在于面试记录中")
+
+                session.commit()
+                print(f"面试记录ID={record_id} 已更新")
+            else:
+                print(f"未找到ID为 {record_id} 的面试记录")
+        except Exception as exc:  # noqa: BLE001
+            print(f"更新面试记录失败: {exc}")
+            session.rollback()
+        finally:
+            session.close()
+
+    def get_all_interview_records(
+        self,
+        filters: dict | None = None,
+        exclude_fields: list[str] | None = None,
+    ) -> list[dict]:
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            query = session.query(TbInterviewRecordingAnalysis)
+
+            if filters:
+                query = query.filter_by(**filters)
+
+            if exclude_fields:
+                all_columns = [column.name for column in TbInterviewRecordingAnalysis.__table__.columns]
+                included_columns = [column for column in all_columns if column not in exclude_fields]
+                query = query.with_entities(
+                    *[getattr(TbInterviewRecordingAnalysis, col) for col in included_columns]
+                )
+
+            query = query.order_by(desc(TbInterviewRecordingAnalysis.update_time))
+            records = query.all()
+
+            if records:
+                records_dict = [
+                    record._asdict() if hasattr(record, "_asdict") else record.__dict__
+                    for record in records
+                ]
+
+                for record in records_dict:
+                    record.pop("_sa_instance_state", None)
+
+                return records_dict
+
+            print("没有找到任何面试记录")
+            return []
+        except Exception as exc:  # noqa: BLE001
+            print(f"查询面试记录失败: {exc}")
+            return []
+        finally:
+            session.close()
+
+    def add_interview_analysis_detail(
+        self,
+        interview_record_analysis_id: int | str,
+        interview_question: str | None = None,
+        interviewee_answer: str | None = None,
+        reference_answer: str | None = None,
+        point_analysis: str | None = None,
+        answer_thoughts: str | None = None,
+        answer_evaluation: str | None = None,
+        answer_score: float | None = None,
+    ) -> None:
+        if not interview_record_analysis_id:
+            print("面试记录分析ID不能为空")
+            return
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            new_detail = TbInterviewRecordingAnalysisDetail(
+                interview_record_analysis_id=interview_record_analysis_id,
+                interview_question=interview_question,
+                interviewee_answer=interviewee_answer,
+                reference_answer=reference_answer,
+                point_analysis=point_analysis,
+                answer_thoughts=answer_thoughts,
+                answer_evaluation=answer_evaluation,
+                answer_score=answer_score,
+            )
+
+            session.add(new_detail)
+            session.commit()
+
+            print(
+                "面试记录分析详情已添加: "
+                f"面试问题={interview_question}, 面试者回答={interviewee_answer}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"添加面试记录分析详情失败: {exc}")
+            session.rollback()
+        finally:
+            session.close()
+
+    def get_analysis_details_by_record_id(
+        self, interview_record_analysis_id: int | str
+    ) -> list[dict]:
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            details = session.query(TbInterviewRecordingAnalysisDetail).filter(
+                TbInterviewRecordingAnalysisDetail.interview_record_analysis_id
+                == interview_record_analysis_id
+            ).all()
+
+            if details:
+                details_dict = [detail.__dict__ for detail in details]
+                for detail in details_dict:
+                    detail.pop("_sa_instance_state", None)
+
+                return details_dict
+
+            print(
+                f"未找到与分析ID {interview_record_analysis_id} 相关的面试记录分析详情"
+            )
+            return []
+        except Exception as exc:  # noqa: BLE001
+            print(f"查询面试记录分析详情失败: {exc}")
+            return []
+        finally:
+            session.close()
+
+    def delete_analysis_details_by_record_id(self, record_id: int | str) -> None:
+        if not record_id:
+            print("面试记录分析ID不能为空")
+            return
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            deleted_count = session.query(TbInterviewRecordingAnalysisDetail).filter(
+                TbInterviewRecordingAnalysisDetail.interview_record_analysis_id == record_id
+            ).delete()
+
+            session.commit()
+
+            if deleted_count > 0:
+                print(f"面试记录分析ID={record_id} 的所有分析详情已删除")
+            else:
+                print(f"未找到与分析ID {record_id} 相关的分析详情")
+        except Exception as exc:  # noqa: BLE001
+            print(f"删除面试记录分析详情失败: {exc}")
+            session.rollback()
+        finally:
+            session.close()
+
+    def get_asr_segment_cache(self, record_id: int | str) -> list[dict]:
+        """获取指定记录的 ASR 分片缓存（按分片序号升序）。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            rows = (
+                session.query(TbAsrSegmentCache)
+                .filter(TbAsrSegmentCache.record_id == int(record_id))
+                .order_by(TbAsrSegmentCache.segment_index.asc())
+                .all()
+            )
+            result: list[dict] = []
+            for row in rows:
+                result.append(
+                    {
+                        "record_id": row.record_id,
+                        "segment_index": row.segment_index,
+                        "segment_path": row.segment_path,
+                        "segment_text": row.segment_text,
+                    }
+                )
+            return result
+        except Exception as exc:  # noqa: BLE001
+            print(f"查询 ASR 分片缓存失败: {exc}")
+            return []
+        finally:
+            session.close()
+
+    def upsert_asr_segment_cache(
+        self,
+        record_id: int | str,
+        segment_index: int,
+        segment_path: str,
+        segment_text: str,
+    ) -> None:
+        """写入或更新单个 ASR 分片缓存。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            row = (
+                session.query(TbAsrSegmentCache)
+                .filter(
+                    TbAsrSegmentCache.record_id == int(record_id),
+                    TbAsrSegmentCache.segment_index == int(segment_index),
+                )
+                .first()
+            )
+            if row:
+                row.segment_path = segment_path
+                row.segment_text = segment_text
+            else:
+                row = TbAsrSegmentCache(
+                    record_id=int(record_id),
+                    segment_index=int(segment_index),
+                    segment_path=segment_path,
+                    segment_text=segment_text,
+                )
+                session.add(row)
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            print(f"写入 ASR 分片缓存失败: {exc}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def clear_asr_segment_cache(self, record_id: int | str) -> None:
+        """清空指定记录的 ASR 分片缓存。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            (
+                session.query(TbAsrSegmentCache)
+                .filter(TbAsrSegmentCache.record_id == int(record_id))
+                .delete()
+            )
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            print(f"清理 ASR 分片缓存失败: {exc}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_extract_cache(self, record_id: int | str) -> list[dict] | None:
+        """获取指定记录的 Q&A 抽取缓存。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            row = (
+                session.query(TbInterviewExtractCache)
+                .filter(TbInterviewExtractCache.record_id == int(record_id))
+                .first()
+            )
+            if not row:
+                return None
+            data = json.loads(row.qa_json)
+            if isinstance(data, list):
+                return data
+            return None
+        except Exception as exc:  # noqa: BLE001
+            print(f"查询 Q&A 抽取缓存失败: {exc}")
+            return None
+        finally:
+            session.close()
+
+    def upsert_extract_cache(self, record_id: int | str, qa_list: list[dict]) -> None:
+        """写入或更新指定记录的 Q&A 抽取缓存。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            payload = json.dumps(qa_list, ensure_ascii=False)
+            row = (
+                session.query(TbInterviewExtractCache)
+                .filter(TbInterviewExtractCache.record_id == int(record_id))
+                .first()
+            )
+            if row:
+                row.qa_json = payload
+            else:
+                row = TbInterviewExtractCache(
+                    record_id=int(record_id),
+                    qa_json=payload,
+                )
+                session.add(row)
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            print(f"写入 Q&A 抽取缓存失败: {exc}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def clear_extract_cache(self, record_id: int | str) -> None:
+        """清空指定记录的 Q&A 抽取缓存。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            (
+                session.query(TbInterviewExtractCache)
+                .filter(TbInterviewExtractCache.record_id == int(record_id))
+                .delete()
+            )
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            print(f"清理 Q&A 抽取缓存失败: {exc}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_analysis_cache(self, record_id: int | str) -> dict[int, dict]:
+        """获取指定记录的逐题分析缓存，key 为 qa_index。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            rows = (
+                session.query(TbInterviewAnalysisCache)
+                .filter(TbInterviewAnalysisCache.record_id == int(record_id))
+                .order_by(TbInterviewAnalysisCache.qa_index.asc())
+                .all()
+            )
+            result: dict[int, dict] = {}
+            for row in rows:
+                try:
+                    parsed = json.loads(row.qa_json)
+                except Exception:  # noqa: BLE001
+                    continue
+                if isinstance(parsed, dict):
+                    result[int(row.qa_index)] = parsed
+            return result
+        except Exception as exc:  # noqa: BLE001
+            print(f"查询逐题分析缓存失败: {exc}")
+            return {}
+        finally:
+            session.close()
+
+    def upsert_analysis_cache(
+        self,
+        record_id: int | str,
+        qa_index: int,
+        qa_item: dict,
+    ) -> None:
+        """写入或更新指定记录的单题分析缓存。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            payload = json.dumps(qa_item, ensure_ascii=False)
+            row = (
+                session.query(TbInterviewAnalysisCache)
+                .filter(
+                    TbInterviewAnalysisCache.record_id == int(record_id),
+                    TbInterviewAnalysisCache.qa_index == int(qa_index),
+                )
+                .first()
+            )
+            if row:
+                row.qa_json = payload
+            else:
+                row = TbInterviewAnalysisCache(
+                    record_id=int(record_id),
+                    qa_index=int(qa_index),
+                    qa_json=payload,
+                )
+                session.add(row)
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            print(f"写入逐题分析缓存失败: {exc}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def clear_analysis_cache(self, record_id: int | str) -> None:
+        """清空指定记录的逐题分析缓存。"""
+        self._ensure_tables_created()
+        session = self.Session()
+        try:
+            (
+                session.query(TbInterviewAnalysisCache)
+                .filter(TbInterviewAnalysisCache.record_id == int(record_id))
+                .delete()
+            )
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            print(f"清理逐题分析缓存失败: {exc}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+def get_db_helper(
+    host: str | None,
+    user_name: str | None,
+    password: str | None,
+    db_name: str | None,
+    port: int = 3306,
+) -> DatabaseHelper:
+    if not all([host, user_name, password, db_name]):
+        raise ValueError(
+            "数据库配置不完整，请检查 .env 文件中的 "
+            "MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE_NAME"
+        )
+    database_url = f"mysql+pymysql://{user_name}:{password}@{host}:{port}/{db_name}"
+    print(f"正在初始化数据库连接: {database_url}")
+    return DatabaseHelper(database_url)
+
+
+_my_db_helper: DatabaseHelper | None = None
+
+
+def get_my_db_helper() -> DatabaseHelper:
+    global _my_db_helper
+    if _my_db_helper is None:
+        conf: DbConfig = get_db_config()
+        try:
+            _my_db_helper = get_db_helper(
+                conf.mysql_host,
+                conf.mysql_user,
+                conf.mysql_password,
+                conf.mysql_database_name,
+                conf.mysql_port,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"初始化数据库连接失败: {exc}")
+            print("\n请检查以下配置：")
+            print(f"  MYSQL_HOST: {conf.mysql_host}")
+            print(f"  MYSQL_PORT: {conf.mysql_port}")
+            print(f"  MYSQL_USER: {conf.mysql_user}")
+            print(f"  MYSQL_DATABASE_NAME: {conf.mysql_database_name}")
+            print("\n解决方案：")
+            print("1. 确保 MySQL 服务已启动")
+            print("2. 检查 .env 文件中的数据库配置是否正确")
+            print("3. 确认数据库用户有足够的权限")
+            raise
+    return _my_db_helper
+
+
+class _LazyDBHelper:
+    """延迟加载的数据库助手包装器"""
+
+    def __getattr__(self, name: str):
+        return getattr(get_my_db_helper(), name)
+
+
+my_db_helper = _LazyDBHelper()
+
+
