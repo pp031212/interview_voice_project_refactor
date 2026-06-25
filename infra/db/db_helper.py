@@ -181,42 +181,79 @@ class DatabaseHelper:
 
         优先认领失败记录（processing_status=3），其次认领待处理记录（processing_status=0）。
         使用条件更新保证原子性，避免多 Worker 并发时重复处理同一条记录。
+        如果候选记录被其他 Worker 抢占，会继续尝试下一条候选。
 
         Returns:
             tuple: (record_dict, from_failed)
                 - record_dict: 认领成功的记录字典，如果没有可认领记录则为 None
                 - from_failed: 是否从失败状态认领的（用于打印日志）
+
+        Raises:
+            DatabaseError: 数据库查询或更新失败时抛出。
         """
         self._ensure_tables_created()
         session = self.Session()
         try:
-            # 1. 优先查找失败记录（processing_status=3）
-            candidate = (
+            # 1. 优先尝试认领失败记录（processing_status=3）
+            result = self._try_claim_by_status(session, expected_status=3)
+            if result is not None:
+                record_dict, from_failed = result
+                return record_dict, from_failed
+
+            # 2. 如果没有失败记录或全部被抢占，尝试认领待处理记录（processing_status=0）
+            result = self._try_claim_by_status(session, expected_status=0)
+            if result is not None:
+                record_dict, from_failed = result
+                return record_dict, from_failed
+
+            # 3. 真的没有可认领任务
+            return None, False
+
+        except DatabaseError:
+            # 已知异常直接抛出
+            session.rollback()
+            raise
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            raise DatabaseError(f"认领面试记录失败: {str(exc)}")
+        finally:
+            session.close()
+
+    def _try_claim_by_status(
+        self, session, expected_status: int
+    ) -> tuple[dict, bool] | None:
+        """尝试认领指定状态的记录。
+
+        Args:
+            session: 数据库会话。
+            expected_status: 期望的处理状态（3=失败，0=待处理）。
+
+        Returns:
+            tuple[dict, bool] | None: 认领成功返回 (record_dict, from_failed)，否则返回 None。
+
+        Raises:
+            DatabaseError: 数据库查询或更新失败时抛出。
+        """
+        from_failed = expected_status == 3
+        excluded_ids: set[int] = set()
+
+        while True:
+            # 查询候选记录，排除已经尝试过的 ID
+            query = (
                 session.query(TbInterviewRecordingAnalysis)
-                .filter(TbInterviewRecordingAnalysis.processing_status == 3)
+                .filter(TbInterviewRecordingAnalysis.processing_status == expected_status)
                 .order_by(TbInterviewRecordingAnalysis.update_time.asc())
-                .first()
             )
 
-            if candidate:
-                expected_status = 3
-                from_failed = True
-            else:
-                # 2. 如果没有失败记录，查找待处理记录（processing_status=0）
-                candidate = (
-                    session.query(TbInterviewRecordingAnalysis)
-                    .filter(TbInterviewRecordingAnalysis.processing_status == 0)
-                    .order_by(TbInterviewRecordingAnalysis.update_time.asc())
-                    .first()
-                )
-                expected_status = 0
-                from_failed = False
+            if excluded_ids:
+                query = query.filter(~TbInterviewRecordingAnalysis.id.in_(excluded_ids))
+
+            candidate = query.first()
 
             if not candidate:
-                return None, False
+                return None
 
-            # 3. 使用条件更新进行原子认领
-            # 只有当 processing_status 仍然是预期值时，才能成功更新
+            # 使用条件更新进行原子认领
             result = session.query(TbInterviewRecordingAnalysis).filter(
                 TbInterviewRecordingAnalysis.id == candidate.id,
                 TbInterviewRecordingAnalysis.processing_status == expected_status,
@@ -227,7 +264,7 @@ class DatabaseHelper:
 
             session.commit()
 
-            # 4. 检查是否认领成功（affected rows == 1）
+            # 检查是否认领成功（affected rows == 1）
             if result == 1:
                 # 认领成功，重新查询获取完整记录
                 claimed_record = session.query(TbInterviewRecordingAnalysis).filter(
@@ -237,19 +274,10 @@ class DatabaseHelper:
                 if claimed_record:
                     record_dict = claimed_record.__dict__.copy()
                     record_dict.pop("_sa_instance_state", None)
-                    print(f"✓ 成功认领记录 ID={candidate.id} (from_failed={from_failed})")
                     return record_dict, from_failed
 
-            # 认领失败（被其他 Worker 抢占）
-            print(f"⚠️ 记录 ID={candidate.id} 已被其他 Worker 认领")
-            return None, False
-
-        except Exception as exc:  # noqa: BLE001
-            print(f"认领面试记录失败: {exc}")
-            session.rollback()
-            return None, False
-        finally:
-            session.close()
+            # 记录被其他 Worker 抢占，排除该 ID 后继续尝试
+            excluded_ids.add(candidate.id)
 
     def get_all_interview_records(
         self,
