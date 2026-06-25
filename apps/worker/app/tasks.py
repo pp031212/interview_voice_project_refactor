@@ -56,21 +56,12 @@ def run_loop() -> None:
     while True:
         try:
             db_helper = get_my_db_helper()
-            failed_records = db_helper.get_all_interview_records({"processing_status": 3})
-            pending_records = db_helper.get_all_interview_records({"processing_status": 0})
 
-            interview_record = None
-            from_failed = False
-            if failed_records:
-                interview_record = failed_records[0]
-                from_failed = True
-            elif pending_records:
-                interview_record = pending_records[0]
+            # 使用原子认领方法获取下一条待处理记录
+            interview_record, from_failed = db_helper.claim_next_interview_record()
 
             if interview_record:
                 record_id = interview_record['id']
-
-                db_helper.update_interview_record(record_id, {"processing_status": 1})
 
                 print(f"\n{'='*60}")
                 if from_failed:

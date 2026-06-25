@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import shutil
+import re
 from dataclasses import dataclass
 from typing import Any
 from pathlib import Path
@@ -13,6 +13,18 @@ from core.utils.time_utils import get_current_time, get_datetime_from_str
 
 from infra.db.repo import InterviewRepository
 
+# 支持的音频文件扩展名（大小写不敏感）
+ALLOWED_AUDIO_EXTENSIONS: set[str] = {".mp3", ".wav", ".flac", ".aac", ".m4a"}
+
+# 最大上传文件大小：200MB
+MAX_UPLOAD_SIZE_BYTES: int = 200 * 1024 * 1024
+
+# 分块读取大小：1MB
+CHUNK_SIZE_BYTES: int = 1 * 1024 * 1024
+
+# 文件名中需要清理的非法字符
+INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+
 
 @dataclass(frozen=True)
 class UploadInfo:
@@ -22,6 +34,26 @@ class UploadInfo:
     absolute_path: Path
     original_filename: str
     saved_filename: str
+
+
+def _sanitize_filename_part(value: str) -> str:
+    """清理文件名中的非法字符。
+
+    Args:
+        value: 原始字符串（如姓名、公司名）。
+
+    Returns:
+        清理后的字符串，可安全用于文件名。
+    """
+    if not value:
+        return "unknown"
+
+    # 替换非法字符为空格，然后将空格替换为下划线
+    cleaned = INVALID_FILENAME_CHARS.sub(" ", value)
+    cleaned = cleaned.strip().replace(" ", "_")
+
+    # 如果清理后为空，返回默认值
+    return cleaned if cleaned else "unknown"
 
 
 class InterviewService:
@@ -72,21 +104,52 @@ class InterviewService:
             ValidationError: If file or parameters are invalid.
             FileUploadError: If file save fails.
         """
+        # 1. 基础校验
         if not file.filename:
             raise ValidationError("文件名不能为空")
 
         if not name or not company:
             raise ValidationError("姓名和公司名不能为空")
 
-        try:
-            original_filename = file.filename
-            extension = get_file_extension(original_filename)
-            saved_filename = f"{get_current_time()}_{name}_{company}{extension}"
-            relative_path = str(Path("data") / "uploads" / saved_filename)
-            absolute_path = self._upload_dir / saved_filename
+        # 2. 扩展名校验（大小写不敏感）
+        original_filename = file.filename
+        extension = get_file_extension(original_filename).lower()
 
+        if extension not in ALLOWED_AUDIO_EXTENSIONS:
+            allowed_list = ", ".join(sorted(ALLOWED_AUDIO_EXTENSIONS))
+            raise ValidationError(
+                f"不支持的文件格式: {extension}，支持的格式: {allowed_list}"
+            )
+
+        # 3. 安全文件名处理
+        safe_name = _sanitize_filename_part(name)
+        safe_company = _sanitize_filename_part(company)
+        saved_filename = f"{get_current_time()}_{safe_name}_{safe_company}{extension}"
+        relative_path = str(Path("data") / "uploads" / saved_filename)
+        absolute_path = self._upload_dir / saved_filename
+
+        # 4. 分块写入文件并累计大小
+        total_size = 0
+        try:
             with absolute_path.open("wb") as output_file:
-                shutil.copyfileobj(file.file, output_file)
+                while True:
+                    chunk = file.file.read(CHUNK_SIZE_BYTES)
+                    if not chunk:
+                        break
+
+                    total_size += len(chunk)
+
+                    # 检查是否超过最大大小
+                    if total_size > MAX_UPLOAD_SIZE_BYTES:
+                        # 超过限制，关闭文件并删除
+                        output_file.close()
+                        self._cleanup_file(absolute_path)
+                        max_mb = MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)
+                        raise ValidationError(
+                            f"文件大小超过限制: {max_mb}MB"
+                        )
+
+                    output_file.write(chunk)
 
             return UploadInfo(
                 relative_path=relative_path,
@@ -94,8 +157,27 @@ class InterviewService:
                 original_filename=original_filename,
                 saved_filename=saved_filename,
             )
+
+        except ValidationError:
+            # 验证错误直接抛出，不包装
+            raise
         except Exception as exc:
+            # 写入失败时清理残留文件
+            self._cleanup_file(absolute_path)
             raise FileUploadError(f"文件上传失败: {str(exc)}")
+
+    def _cleanup_file(self, file_path: Path) -> None:
+        """清理残留文件。
+
+        Args:
+            file_path: 要删除的文件路径。
+        """
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except Exception as cleanup_exc:
+            # 清理失败不覆盖原始异常，仅打印
+            print(f"警告: 清理残留文件失败: {cleanup_exc}")
 
     def create_record(
         self,
