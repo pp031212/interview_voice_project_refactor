@@ -17,5 +17,6 @@ markdown_reports/
 *.log
 *.tmp
 *.bak
+Mimo*.txt
 
 pipelines/graph.jpg
