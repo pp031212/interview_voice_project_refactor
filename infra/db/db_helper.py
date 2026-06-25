@@ -75,7 +75,22 @@ class DatabaseHelper:
         company_name: str | None = None,
         recording_url: str | None = None,
         subject: str | None = None,
-    ) -> int | None:
+    ) -> int:
+        """添加面试记录。
+
+        Args:
+            name: 姓名。
+            interview_time: 面试时间，默认为当前时间。
+            company_name: 公司名称，默认为"未知公司"。
+            recording_url: 录音地址，默认为空字符串。
+            subject: 学科，默认为"未知学科"。
+
+        Returns:
+            int: 新记录的 ID。
+
+        Raises:
+            DatabaseError: 添加失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -101,22 +116,30 @@ class DatabaseHelper:
             session.add(new_record)
             session.commit()
 
-            print(
-                "面试记录已添加: "
-                f"姓名={name}, 面试时间={interview_time}, 公司={company_name}, 录音地址={recording_url}"
-            )
             return new_record.id
         except Exception as exc:  # noqa: BLE001
-            print(f"添加面试记录失败: {exc}")
             session.rollback()
-            return None
+            raise DatabaseError(f"添加面试记录失败: {str(exc)}")
         finally:
             session.close()
 
-    def update_interview_record(self, record_id: int | str, update_fields: dict) -> None:
+    def update_interview_record(self, record_id: int | str, update_fields: dict) -> bool:
+        """更新面试记录。
+
+        Args:
+            record_id: 面试记录 ID。
+            update_fields: 要更新的字段字典。
+
+        Returns:
+            bool: 更新成功返回 True。
+
+        Raises:
+            DatabaseError: record_id 为空或更新失败。
+            RecordNotFoundError: 找不到指定记录。
+        """
         if not record_id:
-            print("面试记录ID不能为空")
-            return
+            raise DatabaseError("面试记录ID不能为空")
+
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -124,20 +147,25 @@ class DatabaseHelper:
                 TbInterviewRecordingAnalysis.id == record_id
             ).first()
 
-            if record:
-                for field, value in update_fields.items():
-                    if hasattr(record, field):
-                        setattr(record, field, value)
-                    else:
-                        print(f"字段 {field} 不存在于面试记录中")
+            if not record:
+                raise RecordNotFoundError(int(record_id) if isinstance(record_id, (int, str)) and str(record_id).isdigit() else 0)
 
-                session.commit()
-                print(f"面试记录ID={record_id} 已更新")
-            else:
-                print(f"未找到ID为 {record_id} 的面试记录")
-        except Exception as exc:  # noqa: BLE001
-            print(f"更新面试记录失败: {exc}")
+            for field, value in update_fields.items():
+                if hasattr(record, field):
+                    setattr(record, field, value)
+                else:
+                    print(f"警告: 字段 {field} 不存在于面试记录中，已跳过")
+
+            session.commit()
+            return True
+
+        except (RecordNotFoundError, DatabaseError):
+            # 已知异常直接抛出
             session.rollback()
+            raise
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            raise DatabaseError(f"更新面试记录失败: {str(exc)}")
         finally:
             session.close()
 
@@ -221,6 +249,18 @@ class DatabaseHelper:
         filters: dict | None = None,
         exclude_fields: list[str] | None = None,
     ) -> list[dict]:
+        """获取所有面试记录。
+
+        Args:
+            filters: 过滤条件字典。
+            exclude_fields: 要排除的字段列表。
+
+        Returns:
+            list[dict]: 面试记录列表，如果没有数据返回空列表。
+
+        Raises:
+            DatabaseError: 查询失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -239,22 +279,24 @@ class DatabaseHelper:
             query = query.order_by(desc(TbInterviewRecordingAnalysis.update_time))
             records = query.all()
 
-            if records:
-                records_dict = [
-                    record._asdict() if hasattr(record, "_asdict") else record.__dict__
-                    for record in records
-                ]
+            if not records:
+                return []
 
-                for record in records_dict:
-                    record.pop("_sa_instance_state", None)
+            records_dict = [
+                record._asdict() if hasattr(record, "_asdict") else record.__dict__
+                for record in records
+            ]
 
-                return records_dict
+            for record in records_dict:
+                record.pop("_sa_instance_state", None)
 
-            print("没有找到任何面试记录")
-            return []
+            return records_dict
+
+        except DatabaseError:
+            # 已知异常直接抛出
+            raise
         except Exception as exc:  # noqa: BLE001
-            print(f"查询面试记录失败: {exc}")
-            return []
+            raise DatabaseError(f"查询面试记录失败: {str(exc)}")
         finally:
             session.close()
 
@@ -268,10 +310,28 @@ class DatabaseHelper:
         answer_thoughts: str | None = None,
         answer_evaluation: str | None = None,
         answer_score: float | None = None,
-    ) -> None:
+    ) -> int:
+        """添加面试记录分析详情。
+
+        Args:
+            interview_record_analysis_id: 面试记录分析 ID。
+            interview_question: 面试问题。
+            interviewee_answer: 面试者回答。
+            reference_answer: 参考答案。
+            point_analysis: 考点分析。
+            answer_thoughts: 答题思路。
+            answer_evaluation: 回答评价。
+            answer_score: 回答评分。
+
+        Returns:
+            int: 新详情记录的 ID。
+
+        Raises:
+            DatabaseError: interview_record_analysis_id 为空或添加失败时抛出。
+        """
         if not interview_record_analysis_id:
-            print("面试记录分析ID不能为空")
-            return
+            raise DatabaseError("面试记录分析ID不能为空")
+
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -289,13 +349,10 @@ class DatabaseHelper:
             session.add(new_detail)
             session.commit()
 
-            print(
-                "面试记录分析详情已添加: "
-                f"面试问题={interview_question}, 面试者回答={interviewee_answer}"
-            )
+            return new_detail.id
         except Exception as exc:  # noqa: BLE001
-            print(f"添加面试记录分析详情失败: {exc}")
             session.rollback()
+            raise DatabaseError(f"添加面试记录分析详情失败: {str(exc)}")
         finally:
             session.close()
 
@@ -327,10 +384,21 @@ class DatabaseHelper:
         finally:
             session.close()
 
-    def delete_analysis_details_by_record_id(self, record_id: int | str) -> None:
+    def delete_analysis_details_by_record_id(self, record_id: int | str) -> int:
+        """删除指定面试记录的所有分析详情。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            int: 删除的记录条数。
+
+        Raises:
+            DatabaseError: record_id 为空或删除失败时抛出。
+        """
         if not record_id:
-            print("面试记录分析ID不能为空")
-            return
+            raise DatabaseError("面试记录分析ID不能为空")
+
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -340,13 +408,10 @@ class DatabaseHelper:
 
             session.commit()
 
-            if deleted_count > 0:
-                print(f"面试记录分析ID={record_id} 的所有分析详情已删除")
-            else:
-                print(f"未找到与分析ID {record_id} 相关的分析详情")
+            return deleted_count
         except Exception as exc:  # noqa: BLE001
-            print(f"删除面试记录分析详情失败: {exc}")
             session.rollback()
+            raise DatabaseError(f"删除面试记录分析详情失败: {str(exc)}")
         finally:
             session.close()
 
