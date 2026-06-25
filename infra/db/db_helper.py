@@ -217,6 +217,35 @@ class DatabaseHelper:
 
         return retry_count, is_retryable
 
+    @staticmethod
+    def _is_retry_backoff_active(
+        update_time: datetime | None, retry_backoff_seconds: int
+    ) -> bool:
+        """判断 FAILED 记录是否仍在重试冷却期内。
+
+        Args:
+            update_time: 记录最后更新时间。
+            retry_backoff_seconds: 冷却秒数；<= 0 表示退避关闭。
+
+        Returns:
+            True 表示仍在冷却期，不应被自动重试。
+        """
+        if retry_backoff_seconds <= 0:
+            return False
+        if update_time is None:
+            return False
+        try:
+            now = (
+                datetime.now(update_time.tzinfo)
+                if update_time.tzinfo
+                else datetime.now()
+            )
+            elapsed = (now - update_time).total_seconds()
+            return elapsed < retry_backoff_seconds
+        except Exception:
+            # 相减异常时保守返回 False，不阻止重试
+            return False
+
     # 状态流转便捷方法
 
     def mark_interview_record_processing(
@@ -323,7 +352,9 @@ class DatabaseHelper:
     # 原子认领
 
     def claim_next_interview_record(
-        self, max_retries: int = 3
+        self,
+        max_retries: int = 3,
+        retry_backoff_seconds: int = 30,
     ) -> tuple[dict | None, bool]:
         """原子认领下一条待处理的面试记录。
 
@@ -334,10 +365,12 @@ class DatabaseHelper:
         对 FAILED 记录的重试策略：
           - 永久错误（需人工介入）：跳过，不自动重试。
           - 重试次数 >= max_retries：跳过，次数已耗尽。
-          - 可重试且未超限：认领并将 retry_count 递增 1。
+          - 冷却期内（update_time 距今 < retry_backoff_seconds）：跳过。
+          - 可重试且未超限且不在冷却期：认领并将 retry_count 递增 1。
 
         Args:
             max_retries: 最大重试次数（默认 3）。
+            retry_backoff_seconds: 重试冷却秒数（默认 30）；<= 0 表示退避关闭。
 
         Returns:
             tuple: (record_dict, from_failed)
@@ -356,6 +389,7 @@ class DatabaseHelper:
                 session,
                 expected_status=InterviewProcessingStatus.FAILED,
                 max_retries=max_retries,
+                retry_backoff_seconds=retry_backoff_seconds,
             )
             if result is not None:
                 record_dict, from_failed = result
@@ -366,6 +400,7 @@ class DatabaseHelper:
                 session,
                 expected_status=InterviewProcessingStatus.PENDING,
                 max_retries=max_retries,
+                retry_backoff_seconds=retry_backoff_seconds,
             )
             if result is not None:
                 record_dict, from_failed = result
@@ -385,12 +420,17 @@ class DatabaseHelper:
             session.close()
 
     def _try_claim_by_status(
-        self, session, expected_status: int, max_retries: int = 3
+        self,
+        session,
+        expected_status: int,
+        max_retries: int = 3,
+        retry_backoff_seconds: int = 30,
     ) -> tuple[dict, bool] | None:
         """尝试认领指定状态的记录。
 
         对 FAILED 记录会检查重试策略：
           - 永久错误或次数耗尽的候选会被跳过并加入 excluded_ids。
+          - 冷却期内的候选会被跳过并加入 excluded_ids。
           - 可重试的候选认领后 retry_count 递增 1。
 
         对 PENDING 记录保持原有逻辑不变。
@@ -399,6 +439,7 @@ class DatabaseHelper:
             session: 数据库会话。
             expected_status: 期望的处理状态（InterviewProcessingStatus 枚举值）。
             max_retries: 最大重试次数。
+            retry_backoff_seconds: 重试冷却秒数；<= 0 表示退避关闭。
 
         Returns:
             tuple[dict, bool] | None: 认领成功返回 (record_dict, from_failed)，否则返回 None。
@@ -434,7 +475,13 @@ class DatabaseHelper:
                     # 永久错误或次数耗尽，跳过该候选
                     excluded_ids.add(candidate.id)
                     continue
-                # 可重试且未超限：认领时递增 retry_count
+                if self._is_retry_backoff_active(
+                    candidate.update_time, retry_backoff_seconds
+                ):
+                    # 仍在冷却期，跳过该候选
+                    excluded_ids.add(candidate.id)
+                    continue
+                # 可重试且未超限且不在冷却期：认领时递增 retry_count
                 next_retry_count = retry_count + 1
                 claim_tips = f"正在处理中... (重试 {next_retry_count}/{max_retries})"
             else:
@@ -465,6 +512,7 @@ class DatabaseHelper:
                     if from_failed:
                         record_dict["retry_count"] = next_retry_count
                         record_dict["max_retries"] = max_retries
+                        record_dict["retry_backoff_seconds"] = retry_backoff_seconds
                     return record_dict, from_failed
 
             # 记录被其他 Worker 抢占，排除该 ID 后继续尝试

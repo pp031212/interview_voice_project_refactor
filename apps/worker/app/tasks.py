@@ -57,11 +57,14 @@ def run_loop() -> None:
     while True:
         try:
             db_helper = get_my_db_helper()
-            max_retries = get_config().worker_max_retries
+            config = get_config()
+            max_retries = config.worker_max_retries
+            retry_backoff_seconds = config.worker_retry_backoff_seconds
 
             # 使用原子认领方法获取下一条待处理记录
             interview_record, from_failed = db_helper.claim_next_interview_record(
-                max_retries=max_retries
+                max_retries=max_retries,
+                retry_backoff_seconds=retry_backoff_seconds,
             )
 
             if interview_record:

@@ -45,6 +45,7 @@ class AppConfig:
     mysql_password: str | None
     mysql_database_name: str | None
     worker_max_retries: int
+    worker_retry_backoff_seconds: int
 
 
 def get_config() -> AppConfig:
@@ -69,4 +70,5 @@ def get_config() -> AppConfig:
         mysql_password=os.getenv("MYSQL_PASSWORD"),
         mysql_database_name=os.getenv("MYSQL_DATABASE_NAME"),
         worker_max_retries=_get_int_env("WORKER_MAX_RETRIES", 3),
+        worker_retry_backoff_seconds=_get_int_env("WORKER_RETRY_BACKOFF_SECONDS", 30),
     )
