@@ -52,13 +52,7 @@ def reset_failed_records():
         
         if choice.lower() == 'y':
             for record in all_records_to_reset:
-                db_helper.update_interview_record(
-                    record['id'],
-                    {
-                        "processing_status": InterviewProcessingStatus.PENDING,
-                        "processing_tips": "等待重新处理"
-                    }
-                )
+                db_helper.reset_interview_record_to_pending(record['id'])
                 print(f"✓ 已重置记录 ID={record['id']}")
             
             print(f"\n✅ 成功重置 {len(all_records_to_reset)} 条记录")
@@ -99,13 +93,7 @@ def reset_specific_record(record_id):
         choice = input("是否要重置此记录为未处理状态？(y/n): ")
         
         if choice.lower() == 'y':
-            db_helper.update_interview_record(
-                record_id,
-                {
-                    "processing_status": InterviewProcessingStatus.PENDING,
-                    "processing_tips": "等待重新处理"
-                }
-            )
+            db_helper.reset_interview_record_to_pending(record_id)
             print(f"✅ 已重置记录 ID={record_id}")
         else:
             print("取消操作")

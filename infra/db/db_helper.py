@@ -177,6 +177,102 @@ class DatabaseHelper:
         finally:
             session.close()
 
+    # 状态流转便捷方法
+
+    def mark_interview_record_processing(
+        self, record_id: int | str, processing_tips: str = "正在处理中..."
+    ) -> bool:
+        """将面试记录标记为处理中。
+
+        Args:
+            record_id: 面试记录 ID。
+            processing_tips: 处理提示信息。
+
+        Returns:
+            bool: 更新成功返回 True。
+
+        Raises:
+            DatabaseError: 更新失败时抛出。
+            RecordNotFoundError: 记录不存在时抛出。
+        """
+        return self.update_interview_record(record_id, {
+            "processing_status": int(InterviewProcessingStatus.PROCESSING),
+            "processing_tips": processing_tips,
+        })
+
+    def mark_interview_record_completed(self, record_id: int | str) -> bool:
+        """将面试记录标记为已完成。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            bool: 更新成功返回 True。
+
+        Raises:
+            DatabaseError: 更新失败时抛出。
+            RecordNotFoundError: 记录不存在时抛出。
+        """
+        return self.update_interview_record(record_id, {
+            "processing_status": int(InterviewProcessingStatus.COMPLETED),
+        })
+
+    def mark_interview_record_failed(
+        self, record_id: int | str, error_message: str, is_retryable: bool
+    ) -> bool:
+        """将面试记录标记为处理失败。
+
+        失败提示格式保持与 Worker 原有格式一致：
+          第一行：处理失败: <error_message>
+          第二行：错误类型: 临时错误（可重试）/ 永久错误（需人工介入）
+          第三行：提示: 修复问题后重置记录，将从断点继续
+
+        Args:
+            record_id: 面试记录 ID。
+            error_message: 错误信息。
+            is_retryable: 是否可重试。
+
+        Returns:
+            bool: 更新成功返回 True。
+
+        Raises:
+            DatabaseError: 更新失败时抛出。
+            RecordNotFoundError: 记录不存在时抛出。
+        """
+        error_type = "临时错误（可重试）" if is_retryable else "永久错误（需人工介入）"
+        processing_tips = (
+            f"处理失败: {error_message}\n"
+            f"错误类型: {error_type}\n"
+            "提示: 修复问题后重置记录，将从断点继续"
+        )
+        return self.update_interview_record(record_id, {
+            "processing_status": int(InterviewProcessingStatus.FAILED),
+            "processing_tips": processing_tips,
+        })
+
+    def reset_interview_record_to_pending(
+        self, record_id: int | str, processing_tips: str = "等待重新处理"
+    ) -> bool:
+        """将面试记录重置为待处理状态。
+
+        Args:
+            record_id: 面试记录 ID。
+            processing_tips: 处理提示信息。
+
+        Returns:
+            bool: 更新成功返回 True。
+
+        Raises:
+            DatabaseError: 更新失败时抛出。
+            RecordNotFoundError: 记录不存在时抛出。
+        """
+        return self.update_interview_record(record_id, {
+            "processing_status": int(InterviewProcessingStatus.PENDING),
+            "processing_tips": processing_tips,
+        })
+
+    # 原子认领
+
     def claim_next_interview_record(self) -> tuple[dict | None, bool]:
         """原子认领下一条待处理的面试记录。
 
