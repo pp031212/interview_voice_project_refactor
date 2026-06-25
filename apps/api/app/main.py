@@ -9,6 +9,7 @@ REFACTOR_ROOT: Path = Path(__file__).resolve().parents[3]
 if str(REFACTOR_ROOT) not in sys.path:
     sys.path.insert(0, str(REFACTOR_ROOT))
 
+from app.routes.asr_resume import router as asr_resume_router
 from app.routes.interviews import router as interviews_router
 from core.config import get_config
 from core.middleware import ExceptionHandlerMiddleware, LoggingMiddleware
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
         }
 
     app.include_router(interviews_router)
+    app.include_router(asr_resume_router)
     return app
 
 

@@ -139,6 +139,7 @@ LLM 客户端统一在 `core/llm.py` 懒加载初始化，配置来自 `.env`，
    - 已完成脚本层能力：`scripts/manage_asr_resume_cache.py`（status / cleanup 子命令）
    - DB 层：`DatabaseHelper.get_asr_segment_cache_status()` 和 `clear_expired_asr_segment_cache()`
    - 配置：`ASR_RESUME_CACHE_TTL_DAYS`（默认 7 天）
+   - API 查询接口：`GET /asr_resume_cache/status?record_id=<id>`（只读，不含清理接口）
    - UI 可视化待后续推进
 
 ## 6. 2026-03-03 增量更新（断点粒度）

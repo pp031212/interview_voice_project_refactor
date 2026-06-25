@@ -18,7 +18,7 @@
 - 统一日志与追踪（请求/任务级别 trace_id）
 - 任务状态机标准化（processing_status + error_type）
 - Worker 重试策略（可配置次数、退避）
-- [已完成脚本层] 为分片级断点增加 TTL 清理策略与状态查询（`scripts/manage_asr_resume_cache.py`，UI 可视化另行推进）
+- [已完成脚本层+API] 为分片级断点增加 TTL 清理策略与状态查询（脚本：`scripts/manage_asr_resume_cache.py`，API：`GET /asr_resume_cache/status`，UI 可视化另行推进）
 
 ## P1（中期，质量与效果提升）
 
