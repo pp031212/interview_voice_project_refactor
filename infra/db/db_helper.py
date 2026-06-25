@@ -460,8 +460,21 @@ class DatabaseHelper:
         segment_index: int,
         segment_path: str,
         segment_text: str,
-    ) -> None:
-        """写入或更新单个 ASR 分片缓存。"""
+    ) -> bool:
+        """写入或更新单个 ASR 分片缓存。
+
+        Args:
+            record_id: 面试记录 ID。
+            segment_index: 分片序号。
+            segment_path: 分片路径。
+            segment_text: 分片文本。
+
+        Returns:
+            bool: 成功返回 True。
+
+        Raises:
+            DatabaseError: 写入失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -485,28 +498,38 @@ class DatabaseHelper:
                 )
                 session.add(row)
             session.commit()
+            return True
         except Exception as exc:  # noqa: BLE001
-            print(f"写入 ASR 分片缓存失败: {exc}")
             session.rollback()
-            raise
+            raise DatabaseError(f"写入 ASR 分片缓存失败: {str(exc)}")
         finally:
             session.close()
 
-    def clear_asr_segment_cache(self, record_id: int | str) -> None:
-        """清空指定记录的 ASR 分片缓存。"""
+    def clear_asr_segment_cache(self, record_id: int | str) -> int:
+        """清空指定记录的 ASR 分片缓存。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            int: 删除的记录条数。
+
+        Raises:
+            DatabaseError: 清理失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
-            (
+            deleted_count = (
                 session.query(TbAsrSegmentCache)
                 .filter(TbAsrSegmentCache.record_id == int(record_id))
                 .delete()
             )
             session.commit()
+            return deleted_count
         except Exception as exc:  # noqa: BLE001
-            print(f"清理 ASR 分片缓存失败: {exc}")
             session.rollback()
-            raise
+            raise DatabaseError(f"清理 ASR 分片缓存失败: {str(exc)}")
         finally:
             session.close()
 
@@ -551,8 +574,19 @@ class DatabaseHelper:
         finally:
             session.close()
 
-    def upsert_extract_cache(self, record_id: int | str, qa_list: list[dict]) -> None:
-        """写入或更新指定记录的 Q&A 抽取缓存。"""
+    def upsert_extract_cache(self, record_id: int | str, qa_list: list[dict]) -> bool:
+        """写入或更新指定记录的 Q&A 抽取缓存。
+
+        Args:
+            record_id: 面试记录 ID。
+            qa_list: Q&A 列表。
+
+        Returns:
+            bool: 成功返回 True。
+
+        Raises:
+            DatabaseError: 写入失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -571,28 +605,38 @@ class DatabaseHelper:
                 )
                 session.add(row)
             session.commit()
+            return True
         except Exception as exc:  # noqa: BLE001
-            print(f"写入 Q&A 抽取缓存失败: {exc}")
             session.rollback()
-            raise
+            raise DatabaseError(f"写入 Q&A 抽取缓存失败: {str(exc)}")
         finally:
             session.close()
 
-    def clear_extract_cache(self, record_id: int | str) -> None:
-        """清空指定记录的 Q&A 抽取缓存。"""
+    def clear_extract_cache(self, record_id: int | str) -> int:
+        """清空指定记录的 Q&A 抽取缓存。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            int: 删除的记录条数。
+
+        Raises:
+            DatabaseError: 清理失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
-            (
+            deleted_count = (
                 session.query(TbInterviewExtractCache)
                 .filter(TbInterviewExtractCache.record_id == int(record_id))
                 .delete()
             )
             session.commit()
+            return deleted_count
         except Exception as exc:  # noqa: BLE001
-            print(f"清理 Q&A 抽取缓存失败: {exc}")
             session.rollback()
-            raise
+            raise DatabaseError(f"清理 Q&A 抽取缓存失败: {str(exc)}")
         finally:
             session.close()
 
@@ -646,8 +690,20 @@ class DatabaseHelper:
         record_id: int | str,
         qa_index: int,
         qa_item: dict,
-    ) -> None:
-        """写入或更新指定记录的单题分析缓存。"""
+    ) -> bool:
+        """写入或更新指定记录的单题分析缓存。
+
+        Args:
+            record_id: 面试记录 ID。
+            qa_index: 题目序号。
+            qa_item: 题目分析数据。
+
+        Returns:
+            bool: 成功返回 True。
+
+        Raises:
+            DatabaseError: 写入失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
@@ -670,28 +726,38 @@ class DatabaseHelper:
                 )
                 session.add(row)
             session.commit()
+            return True
         except Exception as exc:  # noqa: BLE001
-            print(f"写入逐题分析缓存失败: {exc}")
             session.rollback()
-            raise
+            raise DatabaseError(f"写入逐题分析缓存失败: {str(exc)}")
         finally:
             session.close()
 
-    def clear_analysis_cache(self, record_id: int | str) -> None:
-        """清空指定记录的逐题分析缓存。"""
+    def clear_analysis_cache(self, record_id: int | str) -> int:
+        """清空指定记录的逐题分析缓存。
+
+        Args:
+            record_id: 面试记录 ID。
+
+        Returns:
+            int: 删除的记录条数。
+
+        Raises:
+            DatabaseError: 清理失败时抛出。
+        """
         self._ensure_tables_created()
         session = self.Session()
         try:
-            (
+            deleted_count = (
                 session.query(TbInterviewAnalysisCache)
                 .filter(TbInterviewAnalysisCache.record_id == int(record_id))
                 .delete()
             )
             session.commit()
+            return deleted_count
         except Exception as exc:  # noqa: BLE001
-            print(f"清理逐题分析缓存失败: {exc}")
             session.rollback()
-            raise
+            raise DatabaseError(f"清理逐题分析缓存失败: {str(exc)}")
         finally:
             session.close()
 
