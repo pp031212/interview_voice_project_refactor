@@ -18,6 +18,7 @@ def handle_worker_exception(
     record_id: int,
     exc: Exception,
     context: str = "处理任务",
+    trace_id: str | None = None,
 ) -> tuple[str, bool]:
     """
     处理 Worker 异常
@@ -26,12 +27,14 @@ def handle_worker_exception(
         record_id: 记录 ID
         exc: 异常对象
         context: 上下文描述
+        trace_id: 可选的任务追踪 ID
 
     Returns:
         (error_message, is_retryable): 错误消息和是否可重试
     """
     error_message = str(exc)
     is_retryable = False
+    trace_prefix = f"[Trace {trace_id}] " if trace_id else ""
 
     if isinstance(exc, AppException):
         # 应用自定义异常
@@ -39,8 +42,9 @@ def handle_worker_exception(
         is_retryable = isinstance(exc, TemporaryError)
 
         logger.error(
-            f"[Record {record_id}] {context}失败: {error_code} - {exc.message}",
+            f"{trace_prefix}[Record {record_id}] {context}失败: {error_code} - {exc.message}",
             extra={
+                "trace_id": trace_id,
                 "record_id": record_id,
                 "error_code": error_code,
                 "error_type": "temporary" if is_retryable else "permanent",
@@ -54,8 +58,9 @@ def handle_worker_exception(
         # 未预期的异常，默认为临时错误（可重试）
         is_retryable = True
         logger.error(
-            f"[Record {record_id}] {context}时发生未预期错误: {error_message}",
+            f"{trace_prefix}[Record {record_id}] {context}时发生未预期错误: {error_message}",
             extra={
+                "trace_id": trace_id,
                 "record_id": record_id,
                 "error_type": "unknown",
                 "context": context,

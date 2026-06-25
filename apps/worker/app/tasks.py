@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 
 from sqlalchemy.exc import OperationalError
 
@@ -14,6 +15,14 @@ from pipelines.langgraph_agent import clear_checkpoint, interview_voice_analyse
 from pipelines.nodes.__002__voice_to_text_node import clear_asr_resume_cache
 from pipelines.nodes.__004__extract_interview_topic_node import clear_extract_resume_cache
 from pipelines.nodes.__005__offer_sample_answer_node import clear_analysis_resume_cache
+
+
+def _build_worker_trace_id(record_id: int | str) -> str:
+    """生成 Worker 任务级 trace_id。
+
+    格式: record-<record_id>-<8位uuid hex>
+    """
+    return f"record-{record_id}-{uuid.uuid4().hex[:8]}"
 
 
 def check_db_connection() -> bool:
@@ -69,14 +78,15 @@ def run_loop() -> None:
 
             if interview_record:
                 record_id = interview_record['id']
+                trace_id = _build_worker_trace_id(record_id)
 
                 print(f"\n{'='*60}")
                 if from_failed:
-                    print(f"开始断点续传失败记录 ID={record_id}")
+                    print(f"[Trace {trace_id}] 开始断点续传失败记录 ID={record_id}")
                 else:
-                    print(f"开始处理面试记录 ID={record_id}")
-                print(f"姓名: {interview_record['name']}")
-                print(f"公司: {interview_record['company_name']}")
+                    print(f"[Trace {trace_id}] 开始处理面试记录 ID={record_id}")
+                print(f"[Trace {trace_id}] 姓名: {interview_record['name']}")
+                print(f"[Trace {trace_id}] 公司: {interview_record['company_name']}")
                 print(f"{'='*60}\n")
 
                 interview_info_dict = {
@@ -104,19 +114,19 @@ def run_loop() -> None:
                     clear_analysis_resume_cache(record_id)
 
                     print(f"\n{'='*60}")
-                    print(f"✅ 面试记录 {record_id} 处理完成")
+                    print(f"[Trace {trace_id}] ✅ 面试记录 {record_id} 处理完成")
                     print(f"{'='*60}\n")
                 except Exception as exc:
                     # 使用统一的异常处理
                     error_message, is_retryable = handle_worker_exception(
-                        record_id, exc, "处理面试记录"
+                        record_id, exc, "处理面试记录", trace_id=trace_id
                     )
 
                     print(f"\n{'='*60}")
-                    print(f"❌ 处理面试记录 {record_id} 时出错")
+                    print(f"[Trace {trace_id}] ❌ 处理面试记录 {record_id} 时出错")
                     print(f"{'='*60}")
-                    print(f"错误信息: {error_message}")
-                    print(f"可重试: {'是' if is_retryable else '否'}")
+                    print(f"[Trace {trace_id}] 错误信息: {error_message}")
+                    print(f"[Trace {trace_id}] 可重试: {'是' if is_retryable else '否'}")
 
                     try:
                         db_helper = get_my_db_helper()
@@ -125,9 +135,9 @@ def run_loop() -> None:
                             record_id, error_message, is_retryable,
                             retry_count=retry_count, max_retries=max_retries,
                         )
-                        print(f"\n✓ 已将面试记录 {record_id} 标记为失败状态")
-                        print("✓ 检查点已保留，修复问题后重置记录将从断点继续")
-                        print("  使用命令: python scripts/reset_failed_records.py")
+                        print(f"\n[Trace {trace_id}] ✓ 已将面试记录 {record_id} 标记为失败状态")
+                        print(f"[Trace {trace_id}] ✓ 检查点已保留，修复问题后重置记录将从断点继续")
+                        print(f"[Trace {trace_id}]   使用命令: python scripts/reset_failed_records.py")
                         print(f"{'='*60}\n")
                     except Exception:
                         pass
