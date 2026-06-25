@@ -9,6 +9,7 @@
 3. 调用 `pipelines/langgraph_agent.py` 执行状态图。
 4. 成功后将记录状态置为 `2`，并清除该记录 checkpoint。
 5. 失败则置为 `3`，保留 checkpoint 供重试续传。
+6. 用户可在详情页查看失败原因，并点击“继续处理”将失败记录重新排队，Worker 会基于已保留的 checkpoint/cache 续跑。
 
 ## 2. 本地处理链路
 
@@ -48,6 +49,8 @@
 - `1`：处理中
 - `2`：处理完成
 - `3`：处理失败（保留错误信息与 checkpoint）
+
+失败记录可通过 `POST /interview_records/{record_id}/retry` 重置为 `0`，不删除 checkpoint 或中间缓存。
 
 ## 3. LLM 处理链路
 

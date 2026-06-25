@@ -60,8 +60,16 @@ def page_add():
                     timeout=60,
                 )
                 if resp.ok:
+                    result = resp.json()
+                    record_id = result.get("record_id")
                     st.success("已提交，开始处理！")
-                    st.session_state.update({"page": "page_main"})
+                    if record_id:
+                        st.session_state.update({
+                            "record_id": record_id,
+                            "page": "page_detail",
+                        })
+                    else:
+                        st.session_state.update({"page": "page_main"})
                     st.rerun()
                 else:
                     st.error(f"提交失败：{resp.status_code} {resp.text}")

@@ -11,6 +11,7 @@ from app.schemas.interviews import (
     AddRecordResponse,
     RecordResponse,
     RecordsResponse,
+    RetryRecordResponse,
 )
 from core.errors import ValidationError
 from services.interview_service import InterviewService
@@ -45,6 +46,30 @@ async def get_interview_record_by_id(
     """
     record = service.get_record(record_id)
     return RecordResponse(data=record)
+
+
+@router.post("/interview_records/{record_id}/retry")
+async def retry_interview_record(
+    record_id: int,
+    service: InterviewService = Depends(interview_service_dep),
+) -> RetryRecordResponse:
+    """Reset a failed interview record to pending for resume processing.
+
+    Args:
+        record_id: Interview record ID (path parameter).
+        service: Interview service dependency.
+
+    Returns:
+        Response payload with updated processing status.
+    """
+    record = service.retry_failed_record(record_id)
+    return RetryRecordResponse(
+        success=True,
+        message="已提交继续处理，将从断点续跑",
+        record_id=record_id,
+        processing_status=int(record.get("processing_status", 0)),
+        processing_tips=record.get("processing_tips"),
+    )
 
 
 @router.post("/add_interview_record")

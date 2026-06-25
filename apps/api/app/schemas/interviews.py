@@ -37,3 +37,13 @@ class AddRecordResponse(BaseModel):
     message: str | None = None
     record_id: int | None = None
     error: str | None = None
+
+
+class RetryRecordResponse(BaseModel):
+    """Response wrapper for retry/resume requests."""
+
+    success: bool
+    message: str
+    record_id: int
+    processing_status: int
+    processing_tips: str | None = None

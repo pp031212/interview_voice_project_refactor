@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from core.errors import FileUploadError, ValidationError, RecordNotFoundError
+from core.task_status import InterviewProcessingStatus
 from core.utils.path_utils import get_file_extension
 from core.utils.time_utils import get_current_time, get_datetime_from_str
 
@@ -217,3 +218,39 @@ class InterviewService:
             interview_time=interview_time,
             recording_url=recording_url,
         )
+
+    def retry_failed_record(self, record_id: int | str) -> dict[str, Any]:
+        """Reset a failed record to pending so Worker can resume it.
+
+        The method keeps all checkpoint/cache data intact. Worker will pick the
+        record up on the next poll and continue from existing checkpoints.
+
+        Args:
+            record_id: Interview record id.
+
+        Returns:
+            Updated record dict.
+
+        Raises:
+            RecordNotFoundError: If record does not exist.
+            ValidationError: If current status is not failed.
+        """
+        record = self.get_record(record_id)
+        status = record.get("processing_status")
+        try:
+            status_value = int(status)
+        except (TypeError, ValueError):
+            raise ValidationError(f"记录状态异常，无法继续处理: {status}")
+
+        if status_value == int(InterviewProcessingStatus.PROCESSING):
+            raise ValidationError("记录正在处理中，无需继续处理")
+        if status_value == int(InterviewProcessingStatus.COMPLETED):
+            raise ValidationError("记录已处理完成，无需继续处理")
+        if status_value != int(InterviewProcessingStatus.FAILED):
+            raise ValidationError("只有处理失败的记录可以继续处理")
+
+        self._repo.reset_record_to_pending(
+            record_id,
+            processing_tips="等待重新处理（用户手动继续，保留断点）",
+        )
+        return self.get_record(record_id)

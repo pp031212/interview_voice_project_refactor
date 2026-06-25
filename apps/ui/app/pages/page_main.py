@@ -127,8 +127,10 @@ def page_main():
             with col_6:
                 st.write(interview['update_time'])
             with col_7:
-                if st.button("查看详情", key=f"button_{i}"):
-                    if interview['processing_status'] == InterviewProcessingStatus.COMPLETED:
-                        goto_detail_page(interview["id"])
-                    else:
-                        st.warning("请等待处理完成")
+                button_label = (
+                    "查看报告"
+                    if interview['processing_status'] == InterviewProcessingStatus.COMPLETED
+                    else "查看状态"
+                )
+                if st.button(button_label, key=f"button_{i}"):
+                    goto_detail_page(interview["id"])

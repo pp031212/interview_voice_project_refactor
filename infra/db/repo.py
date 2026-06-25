@@ -63,3 +63,20 @@ class InterviewRepository:
             interview_time=interview_time,
             recording_url=recording_url,
         )
+
+    def reset_record_to_pending(
+        self, record_id: int | str, processing_tips: str
+    ) -> bool:
+        """Reset a record to pending status for resume processing.
+
+        Args:
+            record_id: Interview record id.
+            processing_tips: User-facing status text after reset.
+
+        Returns:
+            True when reset succeeds.
+        """
+        return my_db_helper.reset_interview_record_to_pending(
+            record_id,
+            processing_tips=processing_tips,
+        )
