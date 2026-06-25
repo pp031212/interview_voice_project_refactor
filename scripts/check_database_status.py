@@ -9,6 +9,7 @@ refactor_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if refactor_root not in sys.path:
     sys.path.insert(0, refactor_root)
 
+from core.task_status import InterviewProcessingStatus, get_processing_status_label
 from infra.db.db_helper import get_my_db_helper
 
 def check_all_records():
@@ -33,42 +34,34 @@ def check_all_records():
         
         print(f"\n找到 {len(all_records)} 条记录：\n")
         
-        status_map = {
-            0: "未处理",
-            1: "处理中",
-            2: "已完成",
-            3: "处理失败"
-        }
-        
         for record in all_records:
             status = record.get('processing_status', -1)
-            status_text = status_map.get(status, f"未知状态({status})")
-            
+
             print(f"记录 ID: {record['id']}")
             print(f"  姓名: {record['name']}")
             print(f"  公司: {record['company_name']}")
             print(f"  学科: {record.get('subject', 'N/A')}")
             print(f"  录音地址: {record.get('recording_url', 'N/A')}")
-            print(f"  处理状态: {status} ({status_text})")
+            print(f"  处理状态: {status} ({get_processing_status_label(status)})")
             print(f"  提示信息: {record.get('processing_tips', 'N/A')}")
             print(f"  创建时间: {record.get('create_time', 'N/A')}")
             print(f"  更新时间: {record.get('update_time', 'N/A')}")
             print("-" * 80)
-        
+
         # 统计各状态的数量
         print("\n状态统计：")
-        status_count = {}
+        status_count: dict[str, int] = {}
         for record in all_records:
             status = record.get('processing_status', -1)
-            status_text = status_map.get(status, f"未知状态({status})")
-            status_count[status_text] = status_count.get(status_text, 0) + 1
+            label = get_processing_status_label(status)
+            status_count[label] = status_count.get(label, 0) + 1
         
         for status_text, count in status_count.items():
             print(f"  {status_text}: {count} 条")
         
         # 检查未处理的记录
         print("\n" + "=" * 80)
-        unprocessed_records = db_helper.get_all_interview_records({"processing_status": 0})
+        unprocessed_records = db_helper.get_all_interview_records({"processing_status": InterviewProcessingStatus.PENDING})
         print(f"未处理的记录数量: {len(unprocessed_records)}")
         
         if unprocessed_records:

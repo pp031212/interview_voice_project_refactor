@@ -10,6 +10,7 @@ refactor_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if refactor_root not in sys.path:
     sys.path.insert(0, refactor_root)
 
+from core.task_status import InterviewProcessingStatus, get_processing_status_label
 from infra.db.db_helper import get_my_db_helper
 
 def reset_failed_records():
@@ -17,9 +18,9 @@ def reset_failed_records():
     try:
         db_helper = get_my_db_helper()
         
-        # 获取所有失败的记录（状态3）和处理中的记录（状态1）
-        failed_records = db_helper.get_all_interview_records({"processing_status": 3})
-        processing_records = db_helper.get_all_interview_records({"processing_status": 1})
+        # 获取所有失败的记录和处理中的记录
+        failed_records = db_helper.get_all_interview_records({"processing_status": InterviewProcessingStatus.FAILED})
+        processing_records = db_helper.get_all_interview_records({"processing_status": InterviewProcessingStatus.PROCESSING})
         
         # 合并两个列表
         all_records_to_reset = failed_records + processing_records
@@ -54,7 +55,7 @@ def reset_failed_records():
                 db_helper.update_interview_record(
                     record['id'],
                     {
-                        "processing_status": 0,
+                        "processing_status": InterviewProcessingStatus.PENDING,
                         "processing_tips": "等待重新处理"
                     }
                 )
@@ -86,7 +87,7 @@ def reset_specific_record(record_id):
         print(f"  ID: {record['id']}")
         print(f"  姓名: {record['name']}")
         print(f"  公司: {record['company_name']}")
-        print(f"  当前状态: {record['processing_status']} (0=未处理, 1=处理中, 2=已完成, 3=失败)")
+        print(f"  当前状态: {record['processing_status']} ({get_processing_status_label(record['processing_status'])})")
         print(f"  提示信息: {record.get('processing_tips', 'N/A')}")
         print()
         
@@ -101,7 +102,7 @@ def reset_specific_record(record_id):
             db_helper.update_interview_record(
                 record_id,
                 {
-                    "processing_status": 0,
+                    "processing_status": InterviewProcessingStatus.PENDING,
                     "processing_tips": "等待重新处理"
                 }
             )

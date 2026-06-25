@@ -7,6 +7,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.utils.path_utils import get_file_path
 from core.utils.time_utils import get_datetime_str_from_datetime
+from core.task_status import InterviewProcessingStatus
 from core.worker_exception_handler import handle_worker_exception
 from infra.db.db_helper import get_my_db_helper
 from pipelines.langgraph_agent import clear_checkpoint, interview_voice_analyse
@@ -90,7 +91,7 @@ def run_loop() -> None:
                         )
                     )
 
-                    db_helper.update_interview_record(record_id, {"processing_status": 2})
+                    db_helper.update_interview_record(record_id, {"processing_status": InterviewProcessingStatus.COMPLETED})
                     clear_checkpoint(record_id)
                     clear_asr_resume_cache(record_id)
                     clear_extract_resume_cache(record_id)
@@ -117,7 +118,7 @@ def run_loop() -> None:
                         db_helper.update_interview_record(
                             record_id,
                             {
-                                "processing_status": 3,
+                                "processing_status": InterviewProcessingStatus.FAILED,
                                 "processing_tips": (
                                     f"处理失败: {error_message}\n"
                                     f"错误类型: {error_type}\n"

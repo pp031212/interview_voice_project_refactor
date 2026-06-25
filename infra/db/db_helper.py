@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db_config import DbConfig, get_db_config
 from core.errors import DatabaseError, RecordNotFoundError
+from core.task_status import InterviewProcessingStatus
 from infra.db.model.base import Base
 from infra.db.model.tb_interview_recording_analysis import TbInterviewRecordingAnalysis
 from infra.db.model.tb_interview_recording_analysis_detail import (
@@ -109,7 +110,7 @@ class DatabaseHelper:
                 recording_url = ""
             if subject is None or subject == "":
                 subject = "未知学科"
-            processing_status = 0
+            processing_status = InterviewProcessingStatus.PENDING
 
             new_record = TbInterviewRecordingAnalysis(
                 name=name,
@@ -179,7 +180,7 @@ class DatabaseHelper:
     def claim_next_interview_record(self) -> tuple[dict | None, bool]:
         """原子认领下一条待处理的面试记录。
 
-        优先认领失败记录（processing_status=3），其次认领待处理记录（processing_status=0）。
+        优先认领失败记录（FAILED），其次认领待处理记录（PENDING）。
         使用条件更新保证原子性，避免多 Worker 并发时重复处理同一条记录。
         如果候选记录被其他 Worker 抢占，会继续尝试下一条候选。
 
@@ -194,14 +195,14 @@ class DatabaseHelper:
         self._ensure_tables_created()
         session = self.Session()
         try:
-            # 1. 优先尝试认领失败记录（processing_status=3）
-            result = self._try_claim_by_status(session, expected_status=3)
+            # 1. 优先尝试认领失败记录
+            result = self._try_claim_by_status(session, expected_status=InterviewProcessingStatus.FAILED)
             if result is not None:
                 record_dict, from_failed = result
                 return record_dict, from_failed
 
-            # 2. 如果没有失败记录或全部被抢占，尝试认领待处理记录（processing_status=0）
-            result = self._try_claim_by_status(session, expected_status=0)
+            # 2. 如果没有失败记录或全部被抢占，尝试认领待处理记录
+            result = self._try_claim_by_status(session, expected_status=InterviewProcessingStatus.PENDING)
             if result is not None:
                 record_dict, from_failed = result
                 return record_dict, from_failed
@@ -226,7 +227,7 @@ class DatabaseHelper:
 
         Args:
             session: 数据库会话。
-            expected_status: 期望的处理状态（3=失败，0=待处理）。
+            expected_status: 期望的处理状态（InterviewProcessingStatus 枚举值）。
 
         Returns:
             tuple[dict, bool] | None: 认领成功返回 (record_dict, from_failed)，否则返回 None。
@@ -234,7 +235,7 @@ class DatabaseHelper:
         Raises:
             DatabaseError: 数据库查询或更新失败时抛出。
         """
-        from_failed = expected_status == 3
+        from_failed = expected_status == InterviewProcessingStatus.FAILED
         excluded_ids: set[int] = set()
 
         while True:
@@ -258,7 +259,7 @@ class DatabaseHelper:
                 TbInterviewRecordingAnalysis.id == candidate.id,
                 TbInterviewRecordingAnalysis.processing_status == expected_status,
             ).update({
-                TbInterviewRecordingAnalysis.processing_status: 1,
+                TbInterviewRecordingAnalysis.processing_status: InterviewProcessingStatus.PROCESSING,
                 TbInterviewRecordingAnalysis.processing_tips: "正在处理中...",
             })
 
