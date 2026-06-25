@@ -5,12 +5,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class RecordIdPayload(BaseModel):
-    """Payload for fetching a single record by id."""
-
-    record_id: int | str = Field(..., min_length=1)
-
-
 class AddInterviewPayload(BaseModel):
     """Payload for adding an interview record."""
 
@@ -34,12 +28,6 @@ class RecordResponse(BaseModel):
     data: dict[str, Any]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
-class ErrorResponse(BaseModel):
-    """Response wrapper for errors."""
-
-    error: str
 
 
 class AddRecordResponse(BaseModel):

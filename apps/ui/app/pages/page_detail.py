@@ -1,5 +1,3 @@
-import json
-
 import requests
 import streamlit as st
 
@@ -7,16 +5,9 @@ from core.config import get_config
 
 
 def get_data_by_id(record_id):
-    json_data = {
-        "record_id": record_id
-    }
-    data = {
-        "json_data_str": json.dumps(json_data, ensure_ascii=False)
-    }
     api_base_url = get_config().api_base_url
     resp = requests.get(
-        f"{api_base_url}/get_interview_records_by_record_id",
-        data=data,
+        f"{api_base_url}/interview_records/{record_id}",
         timeout=60,
     )
     if resp.ok:
@@ -24,7 +15,7 @@ def get_data_by_id(record_id):
         data_dict = result_dict.get("data", {})
         return data_dict
     else:
-        st.error(f"提交失败：{resp.status_code} {resp.text}")
+        st.error(f"获取详情失败：{resp.status_code} {resp.text}")
 
 
 def page_detail():

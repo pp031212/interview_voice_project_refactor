@@ -9,8 +9,6 @@ from app.deps import interview_service_dep
 from app.schemas.interviews import (
     AddInterviewPayload,
     AddRecordResponse,
-    ErrorResponse,
-    RecordIdPayload,
     RecordResponse,
     RecordsResponse,
 )
@@ -32,27 +30,20 @@ async def get_interview_records(
     return RecordsResponse(data=records)
 
 
-@router.get("/get_interview_records_by_record_id")
-async def get_interview_records_by_record_id(
-    json_data_str: str = Form(...),
+@router.get("/interview_records/{record_id}")
+async def get_interview_record_by_id(
+    record_id: int,
     service: InterviewService = Depends(interview_service_dep),
 ) -> RecordResponse:
     """Return interview record details by record id.
 
     Args:
-        json_data_str: JSON string containing record_id.
+        record_id: Interview record ID (path parameter).
 
     Returns:
-        Response payload.
+        Response payload with record data.
     """
-    try:
-        payload = RecordIdPayload.model_validate_json(json_data_str)
-    except PydanticValidationError:
-        payload_dict = json.loads(json_data_str)
-        payload = RecordIdPayload.model_validate(payload_dict)
-
-    record_id = payload.record_id
-    record = service.get_record(record_id)  # Will raise RecordNotFoundError if not found
+    record = service.get_record(record_id)
     return RecordResponse(data=record)
 
 
