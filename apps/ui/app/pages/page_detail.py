@@ -23,6 +23,7 @@ from core.task_status import (
 
 
 AUTO_REFRESH_SECONDS = 8
+STALE_PROGRESS_SECONDS = 10 * 60
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,51 @@ def _format_datetime(value: Any) -> str:
     if parsed is None:
         return "-"
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _now_like(value: datetime) -> datetime:
+    """Return current time with timezone compatibility for value."""
+    return datetime.now(value.tzinfo) if value.tzinfo else datetime.now()
+
+
+def _duration_seconds(start: Any, end: Any | None = None) -> int | None:
+    """Return elapsed seconds between datetime-like values."""
+    parsed_start = _parse_datetime(start)
+    if parsed_start is None:
+        return None
+
+    parsed_end = _parse_datetime(end) if end is not None else None
+    if parsed_end is None:
+        parsed_end = _now_like(parsed_start)
+
+    try:
+        return max(int((parsed_end - parsed_start).total_seconds()), 0)
+    except TypeError:
+        return None
+
+
+def _seconds_since(value: Any) -> int | None:
+    """Return seconds since datetime-like value."""
+    return _duration_seconds(value)
+
+
+def _format_duration(seconds: int | None) -> str:
+    """Format duration seconds for compact display."""
+    if seconds is None:
+        return "-"
+    if seconds < 60:
+        return f"{seconds} 秒"
+
+    minutes, sec = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes} 分 {sec} 秒" if sec else f"{minutes} 分"
+
+    hours, minute = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} 小时 {minute} 分" if minute else f"{hours} 小时"
+
+    days, hour = divmod(hours, 24)
+    return f"{days} 天 {hour} 小时" if hour else f"{days} 天"
 
 
 def _stage_index_from_stage(stage: str | InterviewProcessingStage | None) -> int | None:
@@ -199,6 +245,40 @@ def _render_stage_timeline(stage_index: int, status_value: int) -> None:
         "<div class='pipeline-grid'>" + "".join(steps_html) + "</div>",
         unsafe_allow_html=True,
     )
+
+
+def _render_timing_summary(data_dict: dict[str, Any], status_value: int) -> None:
+    """Render processing duration and stale-progress hints."""
+    processing_started_at = data_dict.get("processing_started_at")
+    stage_started_at = data_dict.get("stage_started_at")
+    last_progress_at = data_dict.get("last_progress_at")
+    progress_reference_at = last_progress_at or data_dict.get("update_time")
+    completed_at = data_dict.get("completed_at")
+    failed_at = data_dict.get("failed_at")
+
+    end_at = completed_at or failed_at
+    total_seconds = _duration_seconds(processing_started_at, end_at)
+    stage_seconds = _duration_seconds(stage_started_at, end_at)
+    last_progress_seconds = _seconds_since(progress_reference_at)
+
+    cols = st.columns(4)
+    cols[0].metric("开始处理", _format_datetime(processing_started_at))
+    cols[1].metric("已处理时长", _format_duration(total_seconds))
+    cols[2].metric("当前阶段停留", _format_duration(stage_seconds))
+    cols[3].metric("最近进度更新", _format_datetime(progress_reference_at))
+
+    if last_progress_seconds is not None:
+        st.caption(f"距上次进度更新：{_format_duration(last_progress_seconds)}")
+
+    if (
+        status_value == int(InterviewProcessingStatus.PROCESSING)
+        and last_progress_seconds is not None
+        and last_progress_seconds >= STALE_PROGRESS_SECONDS
+    ):
+        st.warning(
+            "最近较长时间没有进度更新，任务可能卡住。请检查 Worker、模型服务、ASR "
+            "或数据库连接状态。"
+        )
 
 
 def _parse_failure_tips(processing_tips: str | None) -> dict[str, str]:
@@ -364,6 +444,7 @@ def _render_record_summary(data_dict: dict[str, Any]) -> int:
     st.write(f"当前进度：{processing_tips}")
     st.write(f"当前阶段：{current_stage.label}")
     _render_stage_timeline(stage_index, status_value)
+    _render_timing_summary(data_dict, status_value)
     return status_value
 
 

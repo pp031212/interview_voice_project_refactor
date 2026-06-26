@@ -88,6 +88,24 @@ class DatabaseHelper:
                     "failed_at",
                     "DATETIME NULL COMMENT '失败时间' AFTER max_retries",
                 ),
+                (
+                    "processing_started_at",
+                    "DATETIME NULL COMMENT '开始处理时间' AFTER failed_at",
+                ),
+                (
+                    "stage_started_at",
+                    "DATETIME NULL COMMENT '当前阶段开始时间' "
+                    "AFTER processing_started_at",
+                ),
+                (
+                    "last_progress_at",
+                    "DATETIME NULL COMMENT '最近进度更新时间' "
+                    "AFTER stage_started_at",
+                ),
+                (
+                    "completed_at",
+                    "DATETIME NULL COMMENT '完成时间' AFTER last_progress_at",
+                ),
             ]
 
             for column_name, column_definition in columns_to_add:
@@ -218,6 +236,13 @@ class DatabaseHelper:
 
             if not record:
                 raise RecordNotFoundError(int(record_id) if isinstance(record_id, (int, str)) and str(record_id).isdigit() else 0)
+
+            new_stage = update_fields.get("processing_stage")
+            if new_stage and "stage_started_at" not in update_fields:
+                old_stage = getattr(record, "processing_stage", None)
+                if str(new_stage) != str(old_stage):
+                    update_fields = dict(update_fields)
+                    update_fields["stage_started_at"] = datetime.now()
 
             for field, value in update_fields.items():
                 if hasattr(record, field):
@@ -355,10 +380,15 @@ class DatabaseHelper:
         if stage is None:
             stage = InterviewProcessingStage.UPLOADED
 
+        now = datetime.now()
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.PROCESSING),
             "processing_tips": processing_tips,
             "processing_stage": stage.value,
+            "processing_started_at": now,
+            "stage_started_at": now,
+            "last_progress_at": now,
+            "completed_at": None,
             "error_code": None,
             "error_type": None,
             "error_message": None,
@@ -380,9 +410,12 @@ class DatabaseHelper:
             DatabaseError: 更新失败时抛出。
             RecordNotFoundError: 记录不存在时抛出。
         """
+        now = datetime.now()
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.COMPLETED),
             "processing_stage": InterviewProcessingStage.COMPLETED.value,
+            "last_progress_at": now,
+            "completed_at": now,
             "error_code": None,
             "error_type": None,
             "error_message": None,
@@ -443,6 +476,7 @@ class DatabaseHelper:
             f"重试次数: {retry_count}/{max_retries}\n"
             "提示: 修复问题后重置记录，将从断点继续"
         )
+        now = datetime.now()
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.FAILED),
             "processing_tips": processing_tips,
@@ -451,7 +485,8 @@ class DatabaseHelper:
             "error_message": error_message,
             "retry_count": retry_count,
             "max_retries": max_retries,
-            "failed_at": datetime.now(),
+            "failed_at": now,
+            "last_progress_at": now,
         })
 
     def reset_interview_record_to_pending(
@@ -474,6 +509,10 @@ class DatabaseHelper:
             "processing_status": int(InterviewProcessingStatus.PENDING),
             "processing_tips": processing_tips,
             "processing_stage": InterviewProcessingStage.UPLOADED.value,
+            "processing_started_at": None,
+            "stage_started_at": None,
+            "last_progress_at": None,
+            "completed_at": None,
             "error_code": None,
             "error_type": None,
             "error_message": None,
@@ -620,11 +659,16 @@ class DatabaseHelper:
                 claim_tips = "正在处理中..."
 
             # 使用条件更新进行原子认领
+            now = datetime.now()
             update_fields = {
                 TbInterviewRecordingAnalysis.processing_status: (
                     InterviewProcessingStatus.PROCESSING
                 ),
                 TbInterviewRecordingAnalysis.processing_tips: claim_tips,
+                TbInterviewRecordingAnalysis.processing_started_at: now,
+                TbInterviewRecordingAnalysis.stage_started_at: now,
+                TbInterviewRecordingAnalysis.last_progress_at: now,
+                TbInterviewRecordingAnalysis.completed_at: None,
                 TbInterviewRecordingAnalysis.error_code: None,
                 TbInterviewRecordingAnalysis.error_type: None,
                 TbInterviewRecordingAnalysis.error_message: None,

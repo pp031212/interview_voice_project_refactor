@@ -176,6 +176,24 @@ def fix_text_columns():
                         "failed_at",
                         "DATETIME NULL COMMENT '失败时间' AFTER max_retries",
                     ),
+                    (
+                        "processing_started_at",
+                        "DATETIME NULL COMMENT '开始处理时间' AFTER failed_at",
+                    ),
+                    (
+                        "stage_started_at",
+                        "DATETIME NULL COMMENT '当前阶段开始时间' "
+                        "AFTER processing_started_at",
+                    ),
+                    (
+                        "last_progress_at",
+                        "DATETIME NULL COMMENT '最近进度更新时间' "
+                        "AFTER stage_started_at",
+                    ),
+                    (
+                        "completed_at",
+                        "DATETIME NULL COMMENT '完成时间' AFTER last_progress_at",
+                    ),
                 ]
                 for column_name, column_definition in columns_to_add:
                     column = conn.execute(

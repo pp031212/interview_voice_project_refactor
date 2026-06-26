@@ -54,3 +54,7 @@ class RetryRecordResponse(BaseModel):
     retry_count: int | None = None
     max_retries: int | None = None
     failed_at: Any | None = None
+    processing_started_at: Any | None = None
+    stage_started_at: Any | None = None
+    last_progress_at: Any | None = None
+    completed_at: Any | None = None

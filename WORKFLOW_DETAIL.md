@@ -57,6 +57,7 @@
 主表使用 `processing_stage` 记录当前阶段：`uploaded`、`split_audio`、`asr`、`arrange_text`、`extract_qa`、`analyze_answers`、`generate_advice`、`generate_report`、`completed`。
 失败记录通过 `processing_status=3` 表达失败；`processing_stage` 保留失败前所在阶段，方便判断是否需要重新上传或只需继续处理。
 失败详情使用结构化字段记录：`error_code`、`error_type`、`error_message`、`retry_count`、`max_retries`、`failed_at`。旧记录没有这些字段值时，UI 仍会回退解析 `processing_tips`。
+处理耗时使用 `processing_started_at`、`stage_started_at`、`last_progress_at`、`completed_at` 记录；详情页会显示已处理时长、当前阶段停留时长和最近进度更新时间，处理中任务长时间没有进度更新时会提示可能卡住。
 UI 详情页会将标准阶段映射到用户可理解的阶段：已上传、音频切分、语音识别、文本整理、问答抽取、逐题分析、总评生成、报告生成、完成。
 
 ## 3. LLM 处理链路

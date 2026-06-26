@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS tb_interview_recording_analysis (
     retry_count INT NULL DEFAULT 0 COMMENT '当前重试次数',
     max_retries INT NULL COMMENT '最大重试次数',
     failed_at DATETIME NULL COMMENT '失败时间',
+    processing_started_at DATETIME NULL COMMENT '开始处理时间',
+    stage_started_at DATETIME NULL COMMENT '当前阶段开始时间',
+    last_progress_at DATETIME NULL COMMENT '最近进度更新时间',
+    completed_at DATETIME NULL COMMENT '完成时间',
     overall_comments LONGTEXT NULL COMMENT '整体点评',
     interview_score FLOAT NULL COMMENT '面试评分',
     strengths LONGTEXT NULL COMMENT '优势点',
@@ -107,6 +111,14 @@ MODIFY COLUMN processing_tips LONGTEXT COMMENT '处理提示';
 -- ADD COLUMN max_retries INT NULL COMMENT '最大重试次数' AFTER retry_count;
 -- ALTER TABLE tb_interview_recording_analysis
 -- ADD COLUMN failed_at DATETIME NULL COMMENT '失败时间' AFTER max_retries;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN processing_started_at DATETIME NULL COMMENT '开始处理时间' AFTER failed_at;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN stage_started_at DATETIME NULL COMMENT '当前阶段开始时间' AFTER processing_started_at;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN last_progress_at DATETIME NULL COMMENT '最近进度更新时间' AFTER stage_started_at;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN completed_at DATETIME NULL COMMENT '完成时间' AFTER last_progress_at;
 
 ALTER TABLE tb_interview_recording_analysis
 MODIFY COLUMN overall_comments LONGTEXT COMMENT '整体点评';

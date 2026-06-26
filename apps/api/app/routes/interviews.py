@@ -76,6 +76,10 @@ async def retry_interview_record(
         retry_count=record.get("retry_count"),
         max_retries=record.get("max_retries"),
         failed_at=record.get("failed_at"),
+        processing_started_at=record.get("processing_started_at"),
+        stage_started_at=record.get("stage_started_at"),
+        last_progress_at=record.get("last_progress_at"),
+        completed_at=record.get("completed_at"),
     )
 
 
