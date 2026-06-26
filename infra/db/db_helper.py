@@ -10,7 +10,12 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db_config import DbConfig, get_db_config
 from core.errors import DatabaseError, RecordNotFoundError
-from core.task_status import InterviewProcessingStatus
+from core.task_status import (
+    InterviewProcessingStage,
+    InterviewProcessingStatus,
+    infer_processing_stage_from_tip,
+    normalize_processing_stage,
+)
 from infra.db.model.base import Base
 from infra.db.model.tb_interview_recording_analysis import TbInterviewRecordingAnalysis
 from infra.db.model.tb_interview_recording_analysis_detail import (
@@ -40,11 +45,34 @@ class DatabaseHelper:
         if not self._tables_created:
             try:
                 Base.metadata.create_all(self.engine)
+                self._ensure_interview_recording_analysis_columns()
                 self._tables_created = True
             except Exception as exc:
                 print(f"警告: 创建数据库表时出错: {exc}")
                 print("提示: 请确保 MySQL 服务已启动，并且配置正确")
                 raise DatabaseError(f"创建数据库表失败: {str(exc)}")
+
+    def _ensure_interview_recording_analysis_columns(self) -> None:
+        """补齐旧库缺失的主表列。
+
+        SQLAlchemy ``create_all`` 不会修改已有表结构；这里用于兼容已经部署过的
+        本地 MySQL 数据库。
+        """
+        with self.engine.begin() as conn:
+            exists = conn.execute(
+                text(
+                    "SHOW COLUMNS FROM tb_interview_recording_analysis "
+                    "LIKE 'processing_stage'"
+                )
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    text(
+                        "ALTER TABLE tb_interview_recording_analysis "
+                        "ADD COLUMN processing_stage VARCHAR(64) NULL "
+                        "COMMENT '处理阶段' AFTER processing_tips"
+                    )
+                )
 
     def _check_connection(self) -> bool:
         try:
@@ -119,6 +147,7 @@ class DatabaseHelper:
                 company_name=company_name,
                 recording_url=recording_url,
                 processing_status=processing_status,
+                processing_stage=InterviewProcessingStage.UPLOADED.value,
                 subject=subject,
             )
 
@@ -249,13 +278,17 @@ class DatabaseHelper:
     # 状态流转便捷方法
 
     def mark_interview_record_processing(
-        self, record_id: int | str, processing_tips: str = "正在处理中..."
+        self,
+        record_id: int | str,
+        processing_tips: str = "正在处理中...",
+        processing_stage: str | InterviewProcessingStage | None = None,
     ) -> bool:
         """将面试记录标记为处理中。
 
         Args:
             record_id: 面试记录 ID。
             processing_tips: 处理提示信息。
+            processing_stage: 当前处理阶段；为空时从 processing_tips 推断。
 
         Returns:
             bool: 更新成功返回 True。
@@ -264,9 +297,16 @@ class DatabaseHelper:
             DatabaseError: 更新失败时抛出。
             RecordNotFoundError: 记录不存在时抛出。
         """
+        stage = normalize_processing_stage(processing_stage)
+        if stage is None:
+            stage = infer_processing_stage_from_tip(processing_tips)
+        if stage is None:
+            stage = InterviewProcessingStage.UPLOADED
+
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.PROCESSING),
             "processing_tips": processing_tips,
+            "processing_stage": stage.value,
         })
 
     def mark_interview_record_completed(self, record_id: int | str) -> bool:
@@ -284,6 +324,7 @@ class DatabaseHelper:
         """
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.COMPLETED),
+            "processing_stage": InterviewProcessingStage.COMPLETED.value,
         })
 
     def mark_interview_record_failed(
@@ -347,6 +388,7 @@ class DatabaseHelper:
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.PENDING),
             "processing_tips": processing_tips,
+            "processing_stage": InterviewProcessingStage.UPLOADED.value,
         })
 
     # 原子认领
@@ -489,13 +531,21 @@ class DatabaseHelper:
                 claim_tips = "正在处理中..."
 
             # 使用条件更新进行原子认领
+            update_fields = {
+                TbInterviewRecordingAnalysis.processing_status: (
+                    InterviewProcessingStatus.PROCESSING
+                ),
+                TbInterviewRecordingAnalysis.processing_tips: claim_tips,
+            }
+            if not from_failed or not candidate.processing_stage:
+                update_fields[
+                    TbInterviewRecordingAnalysis.processing_stage
+                ] = InterviewProcessingStage.UPLOADED.value
+
             result = session.query(TbInterviewRecordingAnalysis).filter(
                 TbInterviewRecordingAnalysis.id == candidate.id,
                 TbInterviewRecordingAnalysis.processing_status == expected_status,
-            ).update({
-                TbInterviewRecordingAnalysis.processing_status: InterviewProcessingStatus.PROCESSING,
-                TbInterviewRecordingAnalysis.processing_tips: claim_tips,
-            })
+            ).update(update_fields)
 
             session.commit()
 

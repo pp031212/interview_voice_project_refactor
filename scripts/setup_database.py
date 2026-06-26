@@ -11,11 +11,15 @@ REFACTOR_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REFACTOR_ROOT not in sys.path:
     sys.path.insert(0, REFACTOR_ROOT)
 
-from infra.db.model.base import Base
-from infra.db.model.tb_user import TbUser
-from infra.db.model.tb_interview_recording_analysis import TbInterviewRecordingAnalysis
-from infra.db.model.tb_interview_recording_analysis_detail import TbInterviewRecordingAnalysisDetail
-from infra.db.model.tb_asr_segment_cache import TbAsrSegmentCache
+from infra.db.model.base import Base  # noqa: E402
+from infra.db.model.tb_user import TbUser  # noqa: E402,F401
+from infra.db.model.tb_interview_recording_analysis import (  # noqa: E402,F401
+    TbInterviewRecordingAnalysis,
+)
+from infra.db.model.tb_interview_recording_analysis_detail import (  # noqa: E402,F401
+    TbInterviewRecordingAnalysisDetail,
+)
+from infra.db.model.tb_asr_segment_cache import TbAsrSegmentCache  # noqa: E402,F401
 
 # 加载环境变量
 load_dotenv(os.path.join(REFACTOR_ROOT, ".env"))
@@ -115,7 +119,7 @@ def fix_text_columns():
                 
                 for column_name, comment in columns_to_fix:
                     # 检查字段是否存在
-                    check_sql = text(f"""
+                    check_sql = text("""
                         SELECT COLUMN_TYPE 
                         FROM INFORMATION_SCHEMA.COLUMNS 
                         WHERE TABLE_SCHEMA = :database 
@@ -142,6 +146,28 @@ def fix_text_columns():
                             print(f"  ✓ {column_name}: {current_type} → LONGTEXT")
                         else:
                             print(f"  ✓ {column_name}: 已是 LONGTEXT，跳过")
+
+                stage_column = conn.execute(
+                    text("""
+                        SELECT COLUMN_NAME
+                        FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = :database
+                        AND TABLE_NAME = 'tb_interview_recording_analysis'
+                        AND COLUMN_NAME = 'processing_stage'
+                    """),
+                    {"database": database},
+                ).fetchone()
+                if stage_column is None:
+                    conn.execute(
+                        text("""
+                            ALTER TABLE tb_interview_recording_analysis
+                            ADD COLUMN processing_stage VARCHAR(64) NULL
+                            COMMENT '处理阶段' AFTER processing_tips
+                        """)
+                    )
+                    print("  ✓ processing_stage: 已补齐处理阶段列")
+                else:
+                    print("  ✓ processing_stage: 已存在，跳过")
                 
                 # 提交事务
                 trans.commit()
@@ -174,7 +200,7 @@ def main():
         create_tables()
         
         # 步骤 3: 优化字段类型
-        print("\n[步骤 3/3] 优化文本字段类型...")
+        print("\n[步骤 3/3] 优化字段类型并补齐兼容列...")
         fix_text_columns()
         
         print("\n" + "=" * 60)
@@ -184,6 +210,7 @@ def main():
         print("  • 数据库已创建")
         print("  • 表结构已创建")
         print("  • 文本字段已优化为 LONGTEXT（支持大文本）")
+        print("  • 主表兼容列已检查")
         
     except Exception as e:
         print("\n" + "=" * 60)

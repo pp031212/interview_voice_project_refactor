@@ -10,8 +10,12 @@ refactor_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if refactor_root not in sys.path:
     sys.path.insert(0, refactor_root)
 
-from core.task_status import InterviewProcessingStatus, get_processing_status_label
-from infra.db.db_helper import get_my_db_helper
+from core.task_status import (  # noqa: E402
+    InterviewProcessingStatus,
+    get_processing_stage_label,
+    get_processing_status_label,
+)
+from infra.db.db_helper import get_my_db_helper  # noqa: E402
 
 def reset_failed_records():
     """重置所有失败或处理中的面试记录"""
@@ -38,6 +42,9 @@ def reset_failed_records():
             print(f"ID: {record['id']}")
             print(f"  姓名: {record['name']}")
             print(f"  公司: {record['company_name']}")
+            stage = record.get('processing_stage')
+            stage_label = get_processing_stage_label(stage) if stage else "N/A"
+            print(f"  处理阶段: {stage or 'N/A'} ({stage_label})")
             print(f"  失败原因: {record.get('processing_tips', 'N/A')}")
             print()
         
@@ -77,11 +84,14 @@ def reset_specific_record(record_id):
             return
         
         record = records[0]
-        print(f"找到记录：")
+        print("找到记录：")
         print(f"  ID: {record['id']}")
         print(f"  姓名: {record['name']}")
         print(f"  公司: {record['company_name']}")
         print(f"  当前状态: {record['processing_status']} ({get_processing_status_label(record['processing_status'])})")
+        stage = record.get('processing_stage')
+        stage_label = get_processing_stage_label(stage) if stage else "N/A"
+        print(f"  处理阶段: {stage or 'N/A'} ({stage_label})")
         print(f"  提示信息: {record.get('processing_tips', 'N/A')}")
         print()
         

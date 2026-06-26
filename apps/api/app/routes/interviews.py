@@ -69,6 +69,7 @@ async def retry_interview_record(
         record_id=record_id,
         processing_status=int(record.get("processing_status", 0)),
         processing_tips=record.get("processing_tips"),
+        processing_stage=record.get("processing_stage"),
     )
 
 

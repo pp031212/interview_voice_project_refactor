@@ -10,7 +10,7 @@
 4. 成功后将记录状态置为 `2`，并清除该记录 checkpoint。
 5. 失败则置为 `3`，保留 checkpoint 供重试续传。
 6. 用户可在详情页查看失败原因，并点击“继续处理”将失败记录重新排队，Worker 会基于已保留的 checkpoint/cache 续跑。
-7. 详情页会基于 `processing_tips` 推断当前处理阶段，展示进度条；待处理/处理中记录会默认自动刷新。
+7. 详情页优先读取 `processing_stage` 展示当前处理阶段；旧记录没有该字段值时，会基于 `processing_tips` 回退推断。待处理/处理中记录会默认自动刷新。
 
 上传入口会在提交前校验必填项、文件格式、文件大小和 API 可用性；上传失败时会解析 API 返回的 `error_code`、`error_type` 和 `trace_id`，给出可操作提示。
 
@@ -54,7 +54,9 @@
 - `3`：处理失败（保留错误信息与 checkpoint）
 
 失败记录可通过 `POST /interview_records/{record_id}/retry` 重置为 `0`，不删除 checkpoint 或中间缓存。
-UI 详情页会将现有 `processing_tips` 映射到用户可理解的阶段：已上传、音频切分、语音识别、文本整理、问答抽取、逐题分析、总评生成、报告生成、完成。
+主表使用 `processing_stage` 记录当前阶段：`uploaded`、`split_audio`、`asr`、`arrange_text`、`extract_qa`、`analyze_answers`、`generate_advice`、`generate_report`、`completed`。
+失败记录通过 `processing_status=3` 表达失败；`processing_stage` 保留失败前所在阶段，方便判断是否需要重新上传或只需继续处理。
+UI 详情页会将标准阶段映射到用户可理解的阶段：已上传、音频切分、语音识别、文本整理、问答抽取、逐题分析、总评生成、报告生成、完成。
 
 ## 3. LLM 处理链路
 

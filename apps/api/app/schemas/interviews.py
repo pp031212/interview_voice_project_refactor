@@ -47,3 +47,4 @@ class RetryRecordResponse(BaseModel):
     record_id: int
     processing_status: int
     processing_tips: str | None = None
+    processing_stage: str | None = None

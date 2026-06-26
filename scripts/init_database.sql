@@ -20,8 +20,9 @@ CREATE TABLE IF NOT EXISTS tb_interview_recording_analysis (
     company_name VARCHAR(255) NOT NULL COMMENT '公司名',
     subject VARCHAR(255) NULL COMMENT '面试学科',
     recording_url VARCHAR(255) NOT NULL COMMENT '录音地址',
-    processing_status SMALLINT DEFAULT 0 COMMENT '处理进度（0：未处理，1：正在处理，2：处理完成）',
+    processing_status SMALLINT DEFAULT 0 COMMENT '处理状态（0：未处理，1：正在处理，2：处理完成，3：处理失败）',
     processing_tips LONGTEXT NULL COMMENT '处理提示',
+    processing_stage VARCHAR(64) NULL COMMENT '处理阶段',
     overall_comments LONGTEXT NULL COMMENT '整体点评',
     interview_score FLOAT NULL COMMENT '面试评分',
     strengths LONGTEXT NULL COMMENT '优势点',
@@ -84,6 +85,10 @@ MODIFY COLUMN interview_text LONGTEXT COMMENT '面试文本';
 
 ALTER TABLE tb_interview_recording_analysis
 MODIFY COLUMN processing_tips LONGTEXT COMMENT '处理提示';
+
+-- 兼容旧库：如果缺少 processing_stage，请执行下面语句补列
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN processing_stage VARCHAR(64) NULL COMMENT '处理阶段' AFTER processing_tips;
 
 ALTER TABLE tb_interview_recording_analysis
 MODIFY COLUMN overall_comments LONGTEXT COMMENT '整体点评';

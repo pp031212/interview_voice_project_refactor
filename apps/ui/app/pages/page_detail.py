@@ -10,7 +10,16 @@ import requests
 import streamlit as st
 
 from core.config import get_config
-from core.task_status import InterviewProcessingStatus, get_processing_status_label
+from core.task_status import (
+    PROCESSING_STAGE_FLOW,
+    InterviewProcessingStage,
+    InterviewProcessingStatus,
+    get_processing_stage_description,
+    get_processing_stage_label,
+    get_processing_status_label,
+    infer_processing_stage_from_tip,
+    normalize_processing_stage,
+)
 
 
 AUTO_REFRESH_SECONDS = 8
@@ -20,21 +29,23 @@ AUTO_REFRESH_SECONDS = 8
 class ProcessingStage:
     """User-facing pipeline stage."""
 
+    key: InterviewProcessingStage
     label: str
     description: str
 
 
-PROCESSING_STAGES: tuple[ProcessingStage, ...] = (
-    ProcessingStage("已上传", "录音已保存，等待 Worker 认领"),
-    ProcessingStage("音频切分", "将长录音切成可识别的音频片段"),
-    ProcessingStage("语音识别", "把音频片段转换成文本"),
-    ProcessingStage("文本整理", "合并和清理转写文本"),
-    ProcessingStage("问答抽取", "从文本中提取面试问答"),
-    ProcessingStage("逐题分析", "生成每道题的分析与参考答案"),
-    ProcessingStage("总评生成", "生成整场面试总结与建议"),
-    ProcessingStage("报告生成", "生成并保存 Markdown 报告"),
-    ProcessingStage("完成", "报告已生成，可以查看和下载"),
+PROCESSING_STAGES: tuple[ProcessingStage, ...] = tuple(
+    ProcessingStage(
+        key=stage,
+        label=get_processing_stage_label(stage),
+        description=get_processing_stage_description(stage),
+    )
+    for stage in PROCESSING_STAGE_FLOW
 )
+
+STAGE_INDEX_BY_VALUE: dict[str, int] = {
+    stage.key.value: index for index, stage in enumerate(PROCESSING_STAGES)
+}
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -57,69 +68,33 @@ def _format_datetime(value: Any) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
-    """Return True when text contains any keyword."""
-    return any(keyword in text for keyword in keywords)
+def _stage_index_from_stage(stage: str | InterviewProcessingStage | None) -> int | None:
+    """Return stage index for a standard processing stage."""
+    normalized = normalize_processing_stage(stage)
+    if normalized is None or normalized == InterviewProcessingStage.FAILED:
+        return None
+    return STAGE_INDEX_BY_VALUE.get(normalized.value)
 
 
-def _infer_stage_index(status_value: int, processing_tips: str | None) -> int:
-    """Infer current pipeline stage from status and processing tips."""
+def _infer_stage_index(
+    status_value: int,
+    processing_tips: str | None,
+    processing_stage: str | None = None,
+) -> int:
+    """Infer current pipeline stage from standard field, then legacy tips."""
     if status_value == int(InterviewProcessingStatus.COMPLETED):
         return len(PROCESSING_STAGES) - 1
-
-    text = str(processing_tips or "")
     if status_value == int(InterviewProcessingStatus.PENDING):
         return 0
 
-    if _contains_any(
-        text,
-        ("开始生成markdown", "完成生成markdown", "Markdown生成完成", "Markdown", "报告"),
-    ):
-        return 7
-    if _contains_any(text, ("开始提供面试建议", "完成提供面试建议", "总评", "面试建议")):
-        return 6
-    if _contains_any(
-        text,
-        (
-            "开始提供参考答案",
-            "完成提供参考答案",
-            "命中逐题分析缓存",
-            "个问题的回答",
-            "参考答案",
-            "逐题",
-            "LLM",
-        ),
-    ):
-        return 5
-    if _contains_any(
-        text,
-        (
-            "开始抽取面试题",
-            "抽取节点",
-            "文本已切分",
-            "文本块",
-            "开始融合抽取结果",
-            "完成抽取面试题",
-            "抽取",
-        ),
-    ):
-        return 4
-    if _contains_any(text, ("开始整理语音文本", "完成整理语音文本", "整理语音文本")):
-        return 3
-    if _contains_any(
-        text,
-        (
-            "开始语音转文本",
-            "完成语音转文本",
-            "命中断点缓存",
-            "正在处理第",
-            "语音识别",
-            "ASR",
-        ),
-    ):
-        return 2
-    if _contains_any(text, ("开始切分语音", "完成切分语音", "语音共切割", "切分")):
-        return 1
+    stage_index = _stage_index_from_stage(processing_stage)
+    if stage_index is not None:
+        return stage_index
+
+    inferred_stage = infer_processing_stage_from_tip(processing_tips)
+    stage_index = _stage_index_from_stage(inferred_stage)
+    if stage_index is not None:
+        return stage_index
 
     return 0
 
@@ -320,8 +295,15 @@ def _render_record_summary(data_dict: dict[str, Any]) -> int:
     st.write(f"姓名：{data_dict.get('name', '-')}")
     st.write(f"学科：{data_dict.get('subject', '-')}")
     processing_tips = data_dict.get("processing_tips") or "等待处理"
+    processing_stage = data_dict.get("processing_stage")
+    stage_index = _infer_stage_index(
+        status_value,
+        processing_tips,
+        processing_stage,
+    )
+    current_stage = PROCESSING_STAGES[stage_index]
     st.write(f"当前进度：{processing_tips}")
-    stage_index = _infer_stage_index(status_value, processing_tips)
+    st.write(f"当前阶段：{current_stage.label}")
     _render_stage_timeline(stage_index, status_value)
     return status_value
 

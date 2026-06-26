@@ -9,8 +9,12 @@ refactor_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if refactor_root not in sys.path:
     sys.path.insert(0, refactor_root)
 
-from core.task_status import InterviewProcessingStatus, get_processing_status_label
-from infra.db.db_helper import get_my_db_helper
+from core.task_status import (  # noqa: E402
+    InterviewProcessingStatus,
+    get_processing_stage_label,
+    get_processing_status_label,
+)
+from infra.db.db_helper import get_my_db_helper  # noqa: E402
 
 def check_all_records():
     """检查所有面试记录的状态"""
@@ -36,6 +40,7 @@ def check_all_records():
         
         for record in all_records:
             status = record.get('processing_status', -1)
+            stage = record.get('processing_stage')
 
             print(f"记录 ID: {record['id']}")
             print(f"  姓名: {record['name']}")
@@ -43,6 +48,8 @@ def check_all_records():
             print(f"  学科: {record.get('subject', 'N/A')}")
             print(f"  录音地址: {record.get('recording_url', 'N/A')}")
             print(f"  处理状态: {status} ({get_processing_status_label(status)})")
+            stage_label = get_processing_stage_label(stage) if stage else "N/A"
+            print(f"  处理阶段: {stage or 'N/A'} ({stage_label})")
             print(f"  提示信息: {record.get('processing_tips', 'N/A')}")
             print(f"  创建时间: {record.get('create_time', 'N/A')}")
             print(f"  更新时间: {record.get('update_time', 'N/A')}")

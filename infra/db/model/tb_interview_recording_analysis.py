@@ -14,8 +14,13 @@ class TbInterviewRecordingAnalysis(Base):
     company_name = Column(String(255), nullable=False, comment='公司名')
     subject = Column(String(255), nullable=True, comment='面试学科')
     recording_url = Column(String(255), nullable=False, comment='录音地址')
-    processing_status = Column(SmallInteger, default=0, comment='处理进度（0：未处理，1：正在处理，2：处理完成）')
+    processing_status = Column(
+        SmallInteger,
+        default=0,
+        comment='处理状态（0：未处理，1：正在处理，2：处理完成，3：处理失败）',
+    )
     processing_tips = Column(LONGTEXT, nullable=True, comment='处理提示')
+    processing_stage = Column(String(64), nullable=True, comment='处理阶段')
     overall_comments = Column(LONGTEXT, nullable=True, comment='整体点评')
     interview_score = Column(Float, nullable=True, comment='面试评分')
     strengths = Column(LONGTEXT, nullable=True, comment='优势点')
