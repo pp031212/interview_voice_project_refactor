@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import html
+import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -8,6 +11,30 @@ import streamlit as st
 
 from core.config import get_config
 from core.task_status import InterviewProcessingStatus, get_processing_status_label
+
+
+AUTO_REFRESH_SECONDS = 8
+
+
+@dataclass(frozen=True)
+class ProcessingStage:
+    """User-facing pipeline stage."""
+
+    label: str
+    description: str
+
+
+PROCESSING_STAGES: tuple[ProcessingStage, ...] = (
+    ProcessingStage("已上传", "录音已保存，等待 Worker 认领"),
+    ProcessingStage("音频切分", "将长录音切成可识别的音频片段"),
+    ProcessingStage("语音识别", "把音频片段转换成文本"),
+    ProcessingStage("文本整理", "合并和清理转写文本"),
+    ProcessingStage("问答抽取", "从文本中提取面试问答"),
+    ProcessingStage("逐题分析", "生成每道题的分析与参考答案"),
+    ProcessingStage("总评生成", "生成整场面试总结与建议"),
+    ProcessingStage("报告生成", "生成并保存 Markdown 报告"),
+    ProcessingStage("完成", "报告已生成，可以查看和下载"),
+)
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -28,6 +55,175 @@ def _format_datetime(value: Any) -> str:
     if parsed is None:
         return "-"
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    """Return True when text contains any keyword."""
+    return any(keyword in text for keyword in keywords)
+
+
+def _infer_stage_index(status_value: int, processing_tips: str | None) -> int:
+    """Infer current pipeline stage from status and processing tips."""
+    if status_value == int(InterviewProcessingStatus.COMPLETED):
+        return len(PROCESSING_STAGES) - 1
+
+    text = str(processing_tips or "")
+    if status_value == int(InterviewProcessingStatus.PENDING):
+        return 0
+
+    if _contains_any(
+        text,
+        ("开始生成markdown", "完成生成markdown", "Markdown生成完成", "Markdown", "报告"),
+    ):
+        return 7
+    if _contains_any(text, ("开始提供面试建议", "完成提供面试建议", "总评", "面试建议")):
+        return 6
+    if _contains_any(
+        text,
+        (
+            "开始提供参考答案",
+            "完成提供参考答案",
+            "命中逐题分析缓存",
+            "个问题的回答",
+            "参考答案",
+            "逐题",
+            "LLM",
+        ),
+    ):
+        return 5
+    if _contains_any(
+        text,
+        (
+            "开始抽取面试题",
+            "抽取节点",
+            "文本已切分",
+            "文本块",
+            "开始融合抽取结果",
+            "完成抽取面试题",
+            "抽取",
+        ),
+    ):
+        return 4
+    if _contains_any(text, ("开始整理语音文本", "完成整理语音文本", "整理语音文本")):
+        return 3
+    if _contains_any(
+        text,
+        (
+            "开始语音转文本",
+            "完成语音转文本",
+            "命中断点缓存",
+            "正在处理第",
+            "语音识别",
+            "ASR",
+        ),
+    ):
+        return 2
+    if _contains_any(text, ("开始切分语音", "完成切分语音", "语音共切割", "切分")):
+        return 1
+
+    return 0
+
+
+def _stage_progress_percent(stage_index: int) -> int:
+    """Convert stage index to progress percentage."""
+    max_index = len(PROCESSING_STAGES) - 1
+    if max_index <= 0:
+        return 0
+    safe_index = min(max(stage_index, 0), max_index)
+    return int((safe_index / max_index) * 100)
+
+
+def _render_stage_timeline(stage_index: int, status_value: int) -> None:
+    """Render compact pipeline stage timeline."""
+    current_stage = PROCESSING_STAGES[stage_index]
+    progress_text = f"{current_stage.label}：{current_stage.description}"
+    st.subheader("处理进度")
+    st.progress(_stage_progress_percent(stage_index), text=progress_text)
+
+    st.markdown(
+        """
+        <style>
+            .pipeline-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+                gap: 8px;
+                margin: 10px 0 18px 0;
+            }
+            .pipeline-step {
+                border: 1px solid #d9dde3;
+                border-radius: 6px;
+                padding: 8px 10px;
+                min-height: 70px;
+                background: #ffffff;
+            }
+            .pipeline-step .step-index {
+                color: #6b7280;
+                font-size: 12px;
+                margin-bottom: 3px;
+            }
+            .pipeline-step .step-title {
+                color: #111827;
+                font-size: 14px;
+                font-weight: 700;
+                line-height: 1.25;
+            }
+            .pipeline-step .step-desc {
+                color: #4b5563;
+                font-size: 12px;
+                line-height: 1.35;
+                margin-top: 4px;
+            }
+            .pipeline-step.done {
+                background: #f0fdf4;
+                border-color: #86efac;
+            }
+            .pipeline-step.current {
+                background: #fff7ed;
+                border-color: #fb923c;
+                box-shadow: inset 3px 0 0 #f97316;
+            }
+            .pipeline-step.failed {
+                background: #fef2f2;
+                border-color: #fca5a5;
+                box-shadow: inset 3px 0 0 #ef4444;
+            }
+            .pipeline-step.upcoming {
+                background: #f9fafb;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    failed = status_value == int(InterviewProcessingStatus.FAILED)
+    steps_html: list[str] = []
+    for index, stage in enumerate(PROCESSING_STAGES):
+        if failed and index == stage_index:
+            state_class = "failed"
+        elif index < stage_index:
+            state_class = "done"
+        elif index == stage_index:
+            state_class = "current"
+        else:
+            state_class = "upcoming"
+
+        steps_html.append(
+            "<div class='pipeline-step {state_class}'>"
+            "<div class='step-index'>阶段 {index}</div>"
+            "<div class='step-title'>{label}</div>"
+            "<div class='step-desc'>{description}</div>"
+            "</div>".format(
+                state_class=state_class,
+                index=index + 1,
+                label=html.escape(stage.label),
+                description=html.escape(stage.description),
+            )
+        )
+
+    st.markdown(
+        "<div class='pipeline-grid'>" + "".join(steps_html) + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _parse_failure_tips(processing_tips: str | None) -> dict[str, str]:
@@ -123,7 +319,10 @@ def _render_record_summary(data_dict: dict[str, Any]) -> int:
 
     st.write(f"姓名：{data_dict.get('name', '-')}")
     st.write(f"学科：{data_dict.get('subject', '-')}")
-    st.write(f"当前进度：{data_dict.get('processing_tips') or '等待处理'}")
+    processing_tips = data_dict.get("processing_tips") or "等待处理"
+    st.write(f"当前进度：{processing_tips}")
+    stage_index = _infer_stage_index(status_value, processing_tips)
+    _render_stage_timeline(stage_index, status_value)
     return status_value
 
 
@@ -164,6 +363,16 @@ def _render_incomplete_state(status_value: int) -> None:
 
     if st.button("刷新状态"):
         st.rerun()
+
+    if status_value in (
+        int(InterviewProcessingStatus.PENDING),
+        int(InterviewProcessingStatus.PROCESSING),
+    ):
+        auto_refresh = st.checkbox("自动刷新状态", value=True)
+        if auto_refresh:
+            st.caption(f"页面将在 {AUTO_REFRESH_SECONDS} 秒后自动刷新。")
+            time.sleep(AUTO_REFRESH_SECONDS)
+            st.rerun()
 
 
 def _render_markdown_report(data_dict: dict[str, Any]) -> None:
