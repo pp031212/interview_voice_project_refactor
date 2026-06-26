@@ -48,3 +48,9 @@ class RetryRecordResponse(BaseModel):
     processing_status: int
     processing_tips: str | None = None
     processing_stage: str | None = None
+    error_code: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    retry_count: int | None = None
+    max_retries: int | None = None
+    failed_at: Any | None = None

@@ -17,6 +17,23 @@ from core.task_status import (  # noqa: E402
 )
 from infra.db.db_helper import get_my_db_helper  # noqa: E402
 
+
+def _format_error_type(error_type):
+    if error_type == "temporary":
+        return "临时错误（可重试）"
+    if error_type == "permanent":
+        return "永久错误（需人工介入）"
+    return error_type or "N/A"
+
+
+def _format_retry_count(record):
+    retry_count = record.get('retry_count')
+    max_retries = record.get('max_retries')
+    if retry_count is None or max_retries is None:
+        return "N/A"
+    return f"{retry_count}/{max_retries}"
+
+
 def reset_failed_records():
     """重置所有失败或处理中的面试记录"""
     try:
@@ -45,6 +62,11 @@ def reset_failed_records():
             stage = record.get('processing_stage')
             stage_label = get_processing_stage_label(stage) if stage else "N/A"
             print(f"  处理阶段: {stage or 'N/A'} ({stage_label})")
+            print(f"  错误代码: {record.get('error_code') or 'N/A'}")
+            print(f"  错误类型: {_format_error_type(record.get('error_type'))}")
+            print(f"  错误信息: {record.get('error_message') or 'N/A'}")
+            print(f"  重试次数: {_format_retry_count(record)}")
+            print(f"  失败时间: {record.get('failed_at') or 'N/A'}")
             print(f"  失败原因: {record.get('processing_tips', 'N/A')}")
             print()
         
@@ -92,6 +114,11 @@ def reset_specific_record(record_id):
         stage = record.get('processing_stage')
         stage_label = get_processing_stage_label(stage) if stage else "N/A"
         print(f"  处理阶段: {stage or 'N/A'} ({stage_label})")
+        print(f"  错误代码: {record.get('error_code') or 'N/A'}")
+        print(f"  错误类型: {_format_error_type(record.get('error_type'))}")
+        print(f"  错误信息: {record.get('error_message') or 'N/A'}")
+        print(f"  重试次数: {_format_retry_count(record)}")
+        print(f"  失败时间: {record.get('failed_at') or 'N/A'}")
         print(f"  提示信息: {record.get('processing_tips', 'N/A')}")
         print()
         

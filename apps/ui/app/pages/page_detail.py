@@ -205,8 +205,10 @@ def _parse_failure_tips(processing_tips: str | None) -> dict[str, str]:
     """Parse structured failure text from processing_tips."""
     result = {
         "reason": "",
+        "error_code": "",
         "error_type": "",
         "retry_count": "",
+        "failed_at": "",
         "hint": "",
     }
     if not processing_tips:
@@ -216,6 +218,8 @@ def _parse_failure_tips(processing_tips: str | None) -> dict[str, str]:
         item = line.strip()
         if item.startswith("处理失败:"):
             result["reason"] = item.removeprefix("处理失败:").strip()
+        elif item.startswith("错误代码:"):
+            result["error_code"] = item.removeprefix("错误代码:").strip()
         elif item.startswith("错误类型:"):
             result["error_type"] = item.removeprefix("错误类型:").strip()
         elif item.startswith("重试次数:"):
@@ -228,15 +232,70 @@ def _parse_failure_tips(processing_tips: str | None) -> dict[str, str]:
     return result
 
 
+def _format_error_type(error_type: Any) -> str:
+    """Format structured error type for display."""
+    value = str(error_type or "").strip()
+    if value == "temporary":
+        return "临时错误（可重试）"
+    if value == "permanent":
+        return "永久错误（需人工介入）"
+    return value
+
+
+def _format_retry_count(retry_count: Any, max_retries: Any) -> str:
+    """Format retry count fields for display."""
+    if retry_count is None or retry_count == "":
+        return ""
+    if max_retries is None or max_retries == "":
+        return str(retry_count)
+    return f"{retry_count}/{max_retries}"
+
+
+def _build_failure_info(data_dict: dict[str, Any]) -> dict[str, str]:
+    """Build failure display info from structured fields, with legacy fallback."""
+    legacy_info = _parse_failure_tips(data_dict.get("processing_tips"))
+
+    failed_at = data_dict.get("failed_at")
+    failed_at_text = _format_datetime(failed_at) if failed_at else ""
+
+    return {
+        "reason": str(data_dict.get("error_message") or legacy_info["reason"]),
+        "error_code": str(data_dict.get("error_code") or legacy_info["error_code"]),
+        "error_type": _format_error_type(
+            data_dict.get("error_type") or legacy_info["error_type"]
+        ),
+        "retry_count": _format_retry_count(
+            data_dict.get("retry_count"),
+            data_dict.get("max_retries"),
+        )
+        or legacy_info["retry_count"],
+        "failed_at": failed_at_text or legacy_info["failed_at"],
+        "hint": legacy_info["hint"],
+    }
+
+
 def _build_failure_action_text(failure_info: dict[str, str]) -> str:
     """Build a user-facing action suggestion for failed records."""
     reason = failure_info.get("reason", "")
+    error_code = failure_info.get("error_code", "")
     error_type = failure_info.get("error_type", "")
-    combined = f"{reason} {error_type}"
+    combined = f"{reason} {error_code} {error_type}"
 
-    if any(keyword in combined for keyword in ["文件不存在", "录音文件", "不支持的文件格式"]):
+    if any(
+        keyword in combined
+        for keyword in [
+            "FILE",
+            "VALIDATION",
+            "文件不存在",
+            "录音文件",
+            "不支持的文件格式",
+        ]
+    ):
         return "录音文件可能不可用或格式不符合要求。如果文件路径已经丢失，通常需要重新上传。"
-    if any(keyword in combined for keyword in ["超时", "timeout", "LLM", "ASR", "数据库", "连接"]):
+    if any(
+        keyword in combined
+        for keyword in ["超时", "timeout", "LLM", "ASR", "DATABASE", "数据库", "连接"]
+    ):
         return "这类问题通常可以在服务恢复后直接继续处理，不需要重新上传录音。"
     if "临时错误" in error_type:
         return "这是可重试错误。确认模型、数据库或网络服务恢复后，可以直接继续处理。"
@@ -310,15 +369,18 @@ def _render_record_summary(data_dict: dict[str, Any]) -> int:
 
 def _render_failed_state(record_id: int | str, data_dict: dict[str, Any]) -> None:
     """Render failed state and retry action."""
-    processing_tips = data_dict.get("processing_tips")
-    failure_info = _parse_failure_tips(processing_tips)
+    failure_info = _build_failure_info(data_dict)
 
     st.error("处理失败")
     st.write(f"失败原因：{failure_info['reason'] or '-'}")
+    if failure_info["error_code"]:
+        st.write(f"错误代码：{failure_info['error_code']}")
     if failure_info["error_type"]:
         st.write(f"错误类型：{failure_info['error_type']}")
     if failure_info["retry_count"]:
         st.write(f"重试次数：{failure_info['retry_count']}")
+    if failure_info["failed_at"]:
+        st.write(f"失败时间：{failure_info['failed_at']}")
     if failure_info["hint"]:
         st.write(f"系统提示：{failure_info['hint']}")
 

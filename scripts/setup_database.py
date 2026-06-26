@@ -147,27 +147,57 @@ def fix_text_columns():
                         else:
                             print(f"  ✓ {column_name}: 已是 LONGTEXT，跳过")
 
-                stage_column = conn.execute(
-                    text("""
-                        SELECT COLUMN_NAME
-                        FROM INFORMATION_SCHEMA.COLUMNS
-                        WHERE TABLE_SCHEMA = :database
-                        AND TABLE_NAME = 'tb_interview_recording_analysis'
-                        AND COLUMN_NAME = 'processing_stage'
-                    """),
-                    {"database": database},
-                ).fetchone()
-                if stage_column is None:
-                    conn.execute(
+                columns_to_add = [
+                    (
+                        "processing_stage",
+                        "VARCHAR(64) NULL COMMENT '处理阶段' AFTER processing_tips",
+                    ),
+                    (
+                        "error_code",
+                        "VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_stage",
+                    ),
+                    (
+                        "error_type",
+                        "VARCHAR(32) NULL COMMENT '错误类型' AFTER error_code",
+                    ),
+                    (
+                        "error_message",
+                        "LONGTEXT NULL COMMENT '错误信息' AFTER error_type",
+                    ),
+                    (
+                        "retry_count",
+                        "INT NULL DEFAULT 0 COMMENT '当前重试次数' AFTER error_message",
+                    ),
+                    (
+                        "max_retries",
+                        "INT NULL COMMENT '最大重试次数' AFTER retry_count",
+                    ),
+                    (
+                        "failed_at",
+                        "DATETIME NULL COMMENT '失败时间' AFTER max_retries",
+                    ),
+                ]
+                for column_name, column_definition in columns_to_add:
+                    column = conn.execute(
                         text("""
-                            ALTER TABLE tb_interview_recording_analysis
-                            ADD COLUMN processing_stage VARCHAR(64) NULL
-                            COMMENT '处理阶段' AFTER processing_tips
-                        """)
-                    )
-                    print("  ✓ processing_stage: 已补齐处理阶段列")
-                else:
-                    print("  ✓ processing_stage: 已存在，跳过")
+                            SELECT COLUMN_NAME
+                            FROM INFORMATION_SCHEMA.COLUMNS
+                            WHERE TABLE_SCHEMA = :database
+                            AND TABLE_NAME = 'tb_interview_recording_analysis'
+                            AND COLUMN_NAME = :column_name
+                        """),
+                        {"database": database, "column_name": column_name},
+                    ).fetchone()
+                    if column is None:
+                        conn.execute(
+                            text(
+                                "ALTER TABLE tb_interview_recording_analysis "
+                                f"ADD COLUMN {column_name} {column_definition}"
+                            )
+                        )
+                        print(f"  ✓ {column_name}: 已补齐兼容列")
+                    else:
+                        print(f"  ✓ {column_name}: 已存在，跳过")
                 
                 # 提交事务
                 trans.commit()

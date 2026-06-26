@@ -16,11 +16,11 @@
 - [已完成] 记录详情页展示阶段进度条，待处理/处理中状态支持自动刷新
 - [已完成] 上传页增加前置校验、服务检查、最近任务入口和友好错误提示
 - [已完成] 处理阶段标准化：新增 `processing_stage` 字段，详情页优先展示标准阶段，旧记录回退 `processing_tips` 推断
+- [已完成] 失败信息结构化：新增 `error_code`、`error_type`、`error_message`、`retry_count`、`max_retries`、`failed_at` 字段，详情页优先展示结构化失败原因
 
 ## P0（短期，稳定性优先）
 
 - 统一日志与追踪（请求/任务级别 trace_id）
-- 任务状态机标准化（error_type / error_message 等结构化失败字段）
 - Worker 重试策略（可配置次数、退避）
 - [已完成脚本层+API] 为分片级断点增加 TTL 清理策略与状态查询（脚本：`scripts/manage_asr_resume_cache.py`，API：`GET /asr_resume_cache/status`，UI 可视化另行推进）
 

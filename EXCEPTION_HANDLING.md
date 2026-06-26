@@ -68,11 +68,19 @@ try:
     # 处理任务
     process_task(record_id)
 except Exception as exc:
-    error_message, is_retryable = handle_worker_exception(
+    error_info = handle_worker_exception(
         record_id, exc, "处理任务"
     )
-    # 根据 is_retryable 决定是否重试
+    # error_info 包含 error_code/error_type/error_message/is_retryable
+    # Worker 会把这些字段写入面试记录，供详情页展示和重试策略判断
 ```
+
+Worker 失败时会写入主表结构化字段：
+- `error_code`：错误代码，如 `DATABASE_ERROR`、`ASR_ERROR`、`LLM_ERROR`
+- `error_type`：`temporary` 或 `permanent`
+- `error_message`：面向用户的失败原因
+- `retry_count` / `max_retries`：当前重试次数和上限
+- `failed_at`：失败时间
 
 ## 异常响应格式
 

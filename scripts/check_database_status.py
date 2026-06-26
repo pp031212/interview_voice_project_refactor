@@ -16,6 +16,15 @@ from core.task_status import (  # noqa: E402
 )
 from infra.db.db_helper import get_my_db_helper  # noqa: E402
 
+
+def _format_error_type(error_type):
+    if error_type == "temporary":
+        return "临时错误（可重试）"
+    if error_type == "permanent":
+        return "永久错误（需人工介入）"
+    return error_type or "N/A"
+
+
 def check_all_records():
     """检查所有面试记录的状态"""
     try:
@@ -50,6 +59,19 @@ def check_all_records():
             print(f"  处理状态: {status} ({get_processing_status_label(status)})")
             stage_label = get_processing_stage_label(stage) if stage else "N/A"
             print(f"  处理阶段: {stage or 'N/A'} ({stage_label})")
+            if status == int(InterviewProcessingStatus.FAILED):
+                print(f"  错误代码: {record.get('error_code') or 'N/A'}")
+                print(f"  错误类型: {_format_error_type(record.get('error_type'))}")
+                print(f"  错误信息: {record.get('error_message') or 'N/A'}")
+                retry_count = record.get('retry_count')
+                max_retries = record.get('max_retries')
+                retry_text = (
+                    f"{retry_count}/{max_retries}"
+                    if retry_count is not None and max_retries is not None
+                    else "N/A"
+                )
+                print(f"  重试次数: {retry_text}")
+                print(f"  失败时间: {record.get('failed_at') or 'N/A'}")
             print(f"  提示信息: {record.get('processing_tips', 'N/A')}")
             print(f"  创建时间: {record.get('create_time', 'N/A')}")
             print(f"  更新时间: {record.get('update_time', 'N/A')}")

@@ -5,13 +5,24 @@ Worker 异常处理工具
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import traceback
 from typing import Callable
 
-from core.errors import AppException, TemporaryError, PermanentError
+from core.errors import AppException, TemporaryError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class WorkerErrorInfo:
+    """Worker task failure metadata."""
+
+    error_message: str
+    is_retryable: bool
+    error_code: str
+    error_type: str
 
 
 def handle_worker_exception(
@@ -19,7 +30,7 @@ def handle_worker_exception(
     exc: Exception,
     context: str = "处理任务",
     trace_id: str | None = None,
-) -> tuple[str, bool]:
+) -> WorkerErrorInfo:
     """
     处理 Worker 异常
 
@@ -30,16 +41,19 @@ def handle_worker_exception(
         trace_id: 可选的任务追踪 ID
 
     Returns:
-        (error_message, is_retryable): 错误消息和是否可重试
+        WorkerErrorInfo: 结构化错误信息。
     """
     error_message = str(exc)
     is_retryable = False
+    error_code = "UNEXPECTED_ERROR"
+    error_type = "temporary"
     trace_prefix = f"[Trace {trace_id}] " if trace_id else ""
 
     if isinstance(exc, AppException):
         # 应用自定义异常
         error_code = exc.error_code
         is_retryable = isinstance(exc, TemporaryError)
+        error_type = "temporary" if is_retryable else "permanent"
 
         logger.error(
             f"{trace_prefix}[Record {record_id}] {context}失败: {error_code} - {exc.message}",
@@ -52,7 +66,7 @@ def handle_worker_exception(
             },
         )
 
-        error_message = f"[{error_code}] {exc.message}"
+        error_message = exc.message
 
     else:
         # 未预期的异常，默认为临时错误（可重试）
@@ -68,7 +82,12 @@ def handle_worker_exception(
             },
         )
 
-    return error_message[:500], is_retryable
+    return WorkerErrorInfo(
+        error_message=error_message[:500],
+        is_retryable=is_retryable,
+        error_code=error_code,
+        error_type=error_type,
+    )
 
 
 def with_exception_handling(func: Callable) -> Callable:

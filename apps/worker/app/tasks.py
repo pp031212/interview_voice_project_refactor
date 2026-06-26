@@ -118,22 +118,31 @@ def run_loop() -> None:
                     print(f"{'='*60}\n")
                 except Exception as exc:
                     # 使用统一的异常处理
-                    error_message, is_retryable = handle_worker_exception(
+                    error_info = handle_worker_exception(
                         record_id, exc, "处理面试记录", trace_id=trace_id
                     )
 
                     print(f"\n{'='*60}")
                     print(f"[Trace {trace_id}] ❌ 处理面试记录 {record_id} 时出错")
                     print(f"{'='*60}")
-                    print(f"[Trace {trace_id}] 错误信息: {error_message}")
-                    print(f"[Trace {trace_id}] 可重试: {'是' if is_retryable else '否'}")
+                    print(f"[Trace {trace_id}] 错误代码: {error_info.error_code}")
+                    print(f"[Trace {trace_id}] 错误信息: {error_info.error_message}")
+                    print(
+                        f"[Trace {trace_id}] 可重试: "
+                        f"{'是' if error_info.is_retryable else '否'}"
+                    )
 
                     try:
                         db_helper = get_my_db_helper()
                         retry_count = interview_record.get("retry_count", 0)
                         db_helper.mark_interview_record_failed(
-                            record_id, error_message, is_retryable,
-                            retry_count=retry_count, max_retries=max_retries,
+                            record_id,
+                            error_info.error_message,
+                            error_info.is_retryable,
+                            retry_count=retry_count,
+                            max_retries=max_retries,
+                            error_code=error_info.error_code,
+                            error_type=error_info.error_type,
                         )
                         print(f"\n[Trace {trace_id}] ✓ 已将面试记录 {record_id} 标记为失败状态")
                         print(f"[Trace {trace_id}] ✓ 检查点已保留，修复问题后重置记录将从断点继续")

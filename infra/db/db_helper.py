@@ -59,20 +59,51 @@ class DatabaseHelper:
         本地 MySQL 数据库。
         """
         with self.engine.begin() as conn:
-            exists = conn.execute(
-                text(
-                    "SHOW COLUMNS FROM tb_interview_recording_analysis "
-                    "LIKE 'processing_stage'"
-                )
-            ).fetchone()
-            if exists is None:
-                conn.execute(
+            columns_to_add = [
+                (
+                    "processing_stage",
+                    "VARCHAR(64) NULL COMMENT '处理阶段' AFTER processing_tips",
+                ),
+                (
+                    "error_code",
+                    "VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_stage",
+                ),
+                (
+                    "error_type",
+                    "VARCHAR(32) NULL COMMENT '错误类型' AFTER error_code",
+                ),
+                (
+                    "error_message",
+                    "LONGTEXT NULL COMMENT '错误信息' AFTER error_type",
+                ),
+                (
+                    "retry_count",
+                    "INT NULL DEFAULT 0 COMMENT '当前重试次数' AFTER error_message",
+                ),
+                (
+                    "max_retries",
+                    "INT NULL COMMENT '最大重试次数' AFTER retry_count",
+                ),
+                (
+                    "failed_at",
+                    "DATETIME NULL COMMENT '失败时间' AFTER max_retries",
+                ),
+            ]
+
+            for column_name, column_definition in columns_to_add:
+                exists = conn.execute(
                     text(
-                        "ALTER TABLE tb_interview_recording_analysis "
-                        "ADD COLUMN processing_stage VARCHAR(64) NULL "
-                        "COMMENT '处理阶段' AFTER processing_tips"
+                        "SHOW COLUMNS FROM tb_interview_recording_analysis "
+                        f"LIKE '{column_name}'"
                     )
-                )
+                ).fetchone()
+                if exists is None:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE tb_interview_recording_analysis "
+                            f"ADD COLUMN {column_name} {column_definition}"
+                        )
+                    )
 
     def _check_connection(self) -> bool:
         try:
@@ -246,6 +277,27 @@ class DatabaseHelper:
 
         return retry_count, is_retryable
 
+    def _get_retry_info_from_record(
+        self, record: TbInterviewRecordingAnalysis
+    ) -> tuple[int, bool]:
+        """从结构化字段读取重试信息，旧记录回退解析 processing_tips。"""
+        parsed_retry_count, parsed_is_retryable = self._parse_retry_info(
+            record.processing_tips
+        )
+
+        retry_count = parsed_retry_count
+        if record.retry_count is not None:
+            try:
+                retry_count = int(record.retry_count)
+            except (TypeError, ValueError):
+                retry_count = parsed_retry_count
+
+        if record.error_type == "permanent":
+            return retry_count, False
+        if record.error_type == "temporary":
+            return retry_count, True
+        return retry_count, parsed_is_retryable
+
     @staticmethod
     def _is_retry_backoff_active(
         update_time: datetime | None, retry_backoff_seconds: int
@@ -307,6 +359,12 @@ class DatabaseHelper:
             "processing_status": int(InterviewProcessingStatus.PROCESSING),
             "processing_tips": processing_tips,
             "processing_stage": stage.value,
+            "error_code": None,
+            "error_type": None,
+            "error_message": None,
+            "retry_count": 0,
+            "max_retries": None,
+            "failed_at": None,
         })
 
     def mark_interview_record_completed(self, record_id: int | str) -> bool:
@@ -325,6 +383,12 @@ class DatabaseHelper:
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.COMPLETED),
             "processing_stage": InterviewProcessingStage.COMPLETED.value,
+            "error_code": None,
+            "error_type": None,
+            "error_message": None,
+            "retry_count": 0,
+            "max_retries": None,
+            "failed_at": None,
         })
 
     def mark_interview_record_failed(
@@ -334,6 +398,8 @@ class DatabaseHelper:
         is_retryable: bool,
         retry_count: int = 0,
         max_retries: int = 3,
+        error_code: str = "UNEXPECTED_ERROR",
+        error_type: str | None = None,
     ) -> bool:
         """将面试记录标记为处理失败。
 
@@ -349,6 +415,8 @@ class DatabaseHelper:
             is_retryable: 是否可重试。
             retry_count: 当前重试次数（默认 0）。
             max_retries: 最大重试次数（默认 3）。
+            error_code: 结构化错误代码。
+            error_type: 结构化错误类型（temporary/permanent）。
 
         Returns:
             bool: 更新成功返回 True。
@@ -357,16 +425,33 @@ class DatabaseHelper:
             DatabaseError: 更新失败时抛出。
             RecordNotFoundError: 记录不存在时抛出。
         """
-        error_type = "临时错误（可重试）" if is_retryable else "永久错误（需人工介入）"
+        normalized_error_type = (
+            error_type if error_type in {"temporary", "permanent"} else None
+        )
+        if normalized_error_type is None:
+            normalized_error_type = "temporary" if is_retryable else "permanent"
+
+        error_type_label = (
+            "临时错误（可重试）"
+            if normalized_error_type == "temporary"
+            else "永久错误（需人工介入）"
+        )
         processing_tips = (
             f"处理失败: {error_message}\n"
-            f"错误类型: {error_type}\n"
+            f"错误代码: {error_code}\n"
+            f"错误类型: {error_type_label}\n"
             f"重试次数: {retry_count}/{max_retries}\n"
             "提示: 修复问题后重置记录，将从断点继续"
         )
         return self.update_interview_record(record_id, {
             "processing_status": int(InterviewProcessingStatus.FAILED),
             "processing_tips": processing_tips,
+            "error_code": error_code,
+            "error_type": normalized_error_type,
+            "error_message": error_message,
+            "retry_count": retry_count,
+            "max_retries": max_retries,
+            "failed_at": datetime.now(),
         })
 
     def reset_interview_record_to_pending(
@@ -389,6 +474,12 @@ class DatabaseHelper:
             "processing_status": int(InterviewProcessingStatus.PENDING),
             "processing_tips": processing_tips,
             "processing_stage": InterviewProcessingStage.UPLOADED.value,
+            "error_code": None,
+            "error_type": None,
+            "error_message": None,
+            "retry_count": 0,
+            "max_retries": None,
+            "failed_at": None,
         })
 
     # 原子认领
@@ -510,9 +601,7 @@ class DatabaseHelper:
 
             # 对 FAILED 记录检查重试策略
             if from_failed:
-                retry_count, is_retryable = self._parse_retry_info(
-                    candidate.processing_tips
-                )
+                retry_count, is_retryable = self._get_retry_info_from_record(candidate)
                 if not is_retryable or retry_count >= max_retries:
                     # 永久错误或次数耗尽，跳过该候选
                     excluded_ids.add(candidate.id)
@@ -536,6 +625,14 @@ class DatabaseHelper:
                     InterviewProcessingStatus.PROCESSING
                 ),
                 TbInterviewRecordingAnalysis.processing_tips: claim_tips,
+                TbInterviewRecordingAnalysis.error_code: None,
+                TbInterviewRecordingAnalysis.error_type: None,
+                TbInterviewRecordingAnalysis.error_message: None,
+                TbInterviewRecordingAnalysis.retry_count: next_retry_count,
+                TbInterviewRecordingAnalysis.max_retries: (
+                    max_retries if from_failed else None
+                ),
+                TbInterviewRecordingAnalysis.failed_at: None,
             }
             if not from_failed or not candidate.processing_stage:
                 update_fields[

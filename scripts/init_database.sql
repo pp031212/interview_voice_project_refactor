@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS tb_interview_recording_analysis (
     processing_status SMALLINT DEFAULT 0 COMMENT '处理状态（0：未处理，1：正在处理，2：处理完成，3：处理失败）',
     processing_tips LONGTEXT NULL COMMENT '处理提示',
     processing_stage VARCHAR(64) NULL COMMENT '处理阶段',
+    error_code VARCHAR(64) NULL COMMENT '错误代码',
+    error_type VARCHAR(32) NULL COMMENT '错误类型',
+    error_message LONGTEXT NULL COMMENT '错误信息',
+    retry_count INT NULL DEFAULT 0 COMMENT '当前重试次数',
+    max_retries INT NULL COMMENT '最大重试次数',
+    failed_at DATETIME NULL COMMENT '失败时间',
     overall_comments LONGTEXT NULL COMMENT '整体点评',
     interview_score FLOAT NULL COMMENT '面试评分',
     strengths LONGTEXT NULL COMMENT '优势点',
@@ -89,6 +95,18 @@ MODIFY COLUMN processing_tips LONGTEXT COMMENT '处理提示';
 -- 兼容旧库：如果缺少 processing_stage，请执行下面语句补列
 -- ALTER TABLE tb_interview_recording_analysis
 -- ADD COLUMN processing_stage VARCHAR(64) NULL COMMENT '处理阶段' AFTER processing_tips;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN error_code VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_stage;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN error_type VARCHAR(32) NULL COMMENT '错误类型' AFTER error_code;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN error_message LONGTEXT NULL COMMENT '错误信息' AFTER error_type;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN retry_count INT NULL DEFAULT 0 COMMENT '当前重试次数' AFTER error_message;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN max_retries INT NULL COMMENT '最大重试次数' AFTER retry_count;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN failed_at DATETIME NULL COMMENT '失败时间' AFTER max_retries;
 
 ALTER TABLE tb_interview_recording_analysis
 MODIFY COLUMN overall_comments LONGTEXT COMMENT '整体点评';
