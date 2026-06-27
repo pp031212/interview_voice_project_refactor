@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS tb_interview_recording_analysis (
     processing_status SMALLINT DEFAULT 0 COMMENT '处理状态（0：未处理，1：正在处理，2：处理完成，3：处理失败）',
     processing_tips LONGTEXT NULL COMMENT '处理提示',
     processing_stage VARCHAR(64) NULL COMMENT '处理阶段',
+    processing_trace_id VARCHAR(64) NULL COMMENT '任务追踪ID',
     error_code VARCHAR(64) NULL COMMENT '错误代码',
     error_type VARCHAR(32) NULL COMMENT '错误类型',
     error_message LONGTEXT NULL COMMENT '错误信息',
@@ -100,7 +101,9 @@ MODIFY COLUMN processing_tips LONGTEXT COMMENT '处理提示';
 -- ALTER TABLE tb_interview_recording_analysis
 -- ADD COLUMN processing_stage VARCHAR(64) NULL COMMENT '处理阶段' AFTER processing_tips;
 -- ALTER TABLE tb_interview_recording_analysis
--- ADD COLUMN error_code VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_stage;
+-- ADD COLUMN processing_trace_id VARCHAR(64) NULL COMMENT '任务追踪ID' AFTER processing_stage;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN error_code VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_trace_id;
 -- ALTER TABLE tb_interview_recording_analysis
 -- ADD COLUMN error_type VARCHAR(32) NULL COMMENT '错误类型' AFTER error_code;
 -- ALTER TABLE tb_interview_recording_analysis

@@ -137,6 +137,7 @@ def get_interview_data() -> list[dict[str, Any]]:
                 ),
                 "processing_tips": item.get("processing_tips", ""),
                 "processing_stage": item.get("processing_stage"),
+                "processing_trace_id": item.get("processing_trace_id"),
                 "error_code": item.get("error_code"),
                 "error_message": item.get("error_message"),
                 "create_time": parse_datetime(item.get("create_time")),
@@ -172,6 +173,7 @@ def record_matches_search(record: dict[str, Any], keyword: str) -> bool:
             "company_name",
             "subject",
             "processing_tips",
+            "processing_trace_id",
             "error_message",
             "id",
         )
@@ -284,11 +286,15 @@ def build_status_line(record: dict[str, Any]) -> str:
 
 def build_progress_line(record: dict[str, Any]) -> str:
     """Build compact progress line for list row."""
+    trace_text = ""
+    if record.get("processing_trace_id"):
+        trace_text = f" | Trace: {record.get('processing_trace_id')}"
+
     if record.get("error_message"):
-        return compact_text(record.get("error_message"))
+        return compact_text(f"{record.get('error_message')}{trace_text}", limit=110)
     if record.get("processing_tips"):
-        return compact_text(record.get("processing_tips"))
-    return "等待处理"
+        return compact_text(f"{record.get('processing_tips')}{trace_text}", limit=110)
+    return compact_text(f"等待处理{trace_text}", limit=110)
 
 
 def render_filters() -> tuple[str, str, str]:

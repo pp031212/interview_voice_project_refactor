@@ -65,8 +65,12 @@ class DatabaseHelper:
                     "VARCHAR(64) NULL COMMENT '处理阶段' AFTER processing_tips",
                 ),
                 (
+                    "processing_trace_id",
+                    "VARCHAR(64) NULL COMMENT '任务追踪ID' AFTER processing_stage",
+                ),
+                (
                     "error_code",
-                    "VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_stage",
+                    "VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_trace_id",
                 ),
                 (
                     "error_type",
@@ -364,6 +368,7 @@ class DatabaseHelper:
 
         Args:
             record_id: 面试记录 ID。
+            processing_trace_id: Worker 单次任务追踪 ID。
             processing_tips: 处理提示信息。
             processing_stage: 当前处理阶段；为空时从 processing_tips 推断。
 
@@ -385,6 +390,7 @@ class DatabaseHelper:
             "processing_status": int(InterviewProcessingStatus.PROCESSING),
             "processing_tips": processing_tips,
             "processing_stage": stage.value,
+            "processing_trace_id": None,
             "processing_started_at": now,
             "stage_started_at": now,
             "last_progress_at": now,
@@ -397,7 +403,11 @@ class DatabaseHelper:
             "failed_at": None,
         })
 
-    def mark_interview_record_completed(self, record_id: int | str) -> bool:
+    def mark_interview_record_completed(
+        self,
+        record_id: int | str,
+        processing_trace_id: str | None = None,
+    ) -> bool:
         """将面试记录标记为已完成。
 
         Args:
@@ -411,7 +421,7 @@ class DatabaseHelper:
             RecordNotFoundError: 记录不存在时抛出。
         """
         now = datetime.now()
-        return self.update_interview_record(record_id, {
+        update_fields = {
             "processing_status": int(InterviewProcessingStatus.COMPLETED),
             "processing_stage": InterviewProcessingStage.COMPLETED.value,
             "last_progress_at": now,
@@ -422,7 +432,10 @@ class DatabaseHelper:
             "retry_count": 0,
             "max_retries": None,
             "failed_at": None,
-        })
+        }
+        if processing_trace_id:
+            update_fields["processing_trace_id"] = processing_trace_id
+        return self.update_interview_record(record_id, update_fields)
 
     def mark_interview_record_failed(
         self,
@@ -433,6 +446,7 @@ class DatabaseHelper:
         max_retries: int = 3,
         error_code: str = "UNEXPECTED_ERROR",
         error_type: str | None = None,
+        processing_trace_id: str | None = None,
     ) -> bool:
         """将面试记录标记为处理失败。
 
@@ -450,6 +464,7 @@ class DatabaseHelper:
             max_retries: 最大重试次数（默认 3）。
             error_code: 结构化错误代码。
             error_type: 结构化错误类型（temporary/permanent）。
+            processing_trace_id: Worker 单次任务追踪 ID。
 
         Returns:
             bool: 更新成功返回 True。
@@ -477,7 +492,7 @@ class DatabaseHelper:
             "提示: 修复问题后重置记录，将从断点继续"
         )
         now = datetime.now()
-        return self.update_interview_record(record_id, {
+        update_fields = {
             "processing_status": int(InterviewProcessingStatus.FAILED),
             "processing_tips": processing_tips,
             "error_code": error_code,
@@ -487,7 +502,10 @@ class DatabaseHelper:
             "max_retries": max_retries,
             "failed_at": now,
             "last_progress_at": now,
-        })
+        }
+        if processing_trace_id:
+            update_fields["processing_trace_id"] = processing_trace_id
+        return self.update_interview_record(record_id, update_fields)
 
     def reset_interview_record_to_pending(
         self, record_id: int | str, processing_tips: str = "等待重新处理"
@@ -509,6 +527,7 @@ class DatabaseHelper:
             "processing_status": int(InterviewProcessingStatus.PENDING),
             "processing_tips": processing_tips,
             "processing_stage": InterviewProcessingStage.UPLOADED.value,
+            "processing_trace_id": None,
             "processing_started_at": None,
             "stage_started_at": None,
             "last_progress_at": None,
@@ -665,6 +684,7 @@ class DatabaseHelper:
                     InterviewProcessingStatus.PROCESSING
                 ),
                 TbInterviewRecordingAnalysis.processing_tips: claim_tips,
+                TbInterviewRecordingAnalysis.processing_trace_id: None,
                 TbInterviewRecordingAnalysis.processing_started_at: now,
                 TbInterviewRecordingAnalysis.stage_started_at: now,
                 TbInterviewRecordingAnalysis.last_progress_at: now,

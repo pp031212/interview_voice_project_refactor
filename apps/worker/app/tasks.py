@@ -79,6 +79,13 @@ def run_loop() -> None:
             if interview_record:
                 record_id = interview_record['id']
                 trace_id = _build_worker_trace_id(record_id)
+                try:
+                    db_helper.update_interview_record(
+                        record_id,
+                        {"processing_trace_id": trace_id},
+                    )
+                except Exception as exc:
+                    print(f"[Trace {trace_id}] 警告: 写入任务追踪ID失败: {exc}")
 
                 print(f"\n{'='*60}")
                 if from_failed:
@@ -107,7 +114,10 @@ def run_loop() -> None:
                         )
                     )
 
-                    db_helper.mark_interview_record_completed(record_id)
+                    db_helper.mark_interview_record_completed(
+                        record_id,
+                        processing_trace_id=trace_id,
+                    )
                     clear_checkpoint(record_id)
                     clear_asr_resume_cache(record_id)
                     clear_extract_resume_cache(record_id)
@@ -143,6 +153,7 @@ def run_loop() -> None:
                             max_retries=max_retries,
                             error_code=error_info.error_code,
                             error_type=error_info.error_type,
+                            processing_trace_id=trace_id,
                         )
                         print(f"\n[Trace {trace_id}] ✓ 已将面试记录 {record_id} 标记为失败状态")
                         print(f"[Trace {trace_id}] ✓ 检查点已保留，修复问题后重置记录将从断点继续")

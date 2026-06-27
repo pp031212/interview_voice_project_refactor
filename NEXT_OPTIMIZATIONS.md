@@ -19,10 +19,10 @@
 - [已完成] 失败信息结构化：新增 `error_code`、`error_type`、`error_message`、`retry_count`、`max_retries`、`failed_at` 字段，详情页优先展示结构化失败原因
 - [已完成] 处理耗时统计：新增处理开始、阶段开始、最近进度、完成时间字段，详情页展示耗时并提示疑似卡住任务
 - [已完成] 记录列表检索与异常任务筛选：主页支持按姓名/公司/学科/ID 搜索，按状态和疑似卡住筛选，按时间排序
+- [已完成] 任务追踪 ID 持久化：Worker 单次任务 trace_id 写入主表，首页、详情页和脚本可用于定位日志
 
 ## P0（短期，稳定性优先）
 
-- 统一日志与追踪（请求/任务级别 trace_id）
 - Worker 重试策略（可配置次数、退避）
 - [已完成脚本层+API] 为分片级断点增加 TTL 清理策略与状态查询（脚本：`scripts/manage_asr_resume_cache.py`，API：`GET /asr_resume_cache/status`，UI 可视化另行推进）
 

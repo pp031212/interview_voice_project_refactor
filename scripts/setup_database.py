@@ -153,8 +153,12 @@ def fix_text_columns():
                         "VARCHAR(64) NULL COMMENT '处理阶段' AFTER processing_tips",
                     ),
                     (
+                        "processing_trace_id",
+                        "VARCHAR(64) NULL COMMENT '任务追踪ID' AFTER processing_stage",
+                    ),
+                    (
                         "error_code",
-                        "VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_stage",
+                        "VARCHAR(64) NULL COMMENT '错误代码' AFTER processing_trace_id",
                     ),
                     (
                         "error_type",

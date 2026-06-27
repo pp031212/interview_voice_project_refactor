@@ -21,6 +21,7 @@ class TbInterviewRecordingAnalysis(Base):
     )
     processing_tips = Column(LONGTEXT, nullable=True, comment='处理提示')
     processing_stage = Column(String(64), nullable=True, comment='处理阶段')
+    processing_trace_id = Column(String(64), nullable=True, comment='任务追踪ID')
     error_code = Column(String(64), nullable=True, comment='错误代码')
     error_type = Column(String(32), nullable=True, comment='错误类型')
     error_message = Column(LONGTEXT, nullable=True, comment='错误信息')

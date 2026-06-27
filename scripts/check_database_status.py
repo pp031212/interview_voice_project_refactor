@@ -59,6 +59,7 @@ def check_all_records():
             print(f"  处理状态: {status} ({get_processing_status_label(status)})")
             stage_label = get_processing_stage_label(stage) if stage else "N/A"
             print(f"  处理阶段: {stage or 'N/A'} ({stage_label})")
+            print(f"  任务追踪ID: {record.get('processing_trace_id') or 'N/A'}")
             print(f"  开始处理时间: {record.get('processing_started_at') or 'N/A'}")
             print(f"  当前阶段开始时间: {record.get('stage_started_at') or 'N/A'}")
             print(f"  最近进度更新时间: {record.get('last_progress_at') or 'N/A'}")

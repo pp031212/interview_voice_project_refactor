@@ -433,6 +433,8 @@ def _render_record_summary(data_dict: dict[str, Any]) -> int:
 
     st.write(f"姓名：{data_dict.get('name', '-')}")
     st.write(f"学科：{data_dict.get('subject', '-')}")
+    if data_dict.get("processing_trace_id"):
+        st.write(f"任务追踪ID：{data_dict.get('processing_trace_id')}")
     processing_tips = data_dict.get("processing_tips") or "等待处理"
     processing_stage = data_dict.get("processing_stage")
     stage_index = _infer_stage_index(

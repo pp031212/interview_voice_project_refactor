@@ -11,6 +11,7 @@
 5. 失败则置为 `3`，保留 checkpoint 供重试续传。
 6. 用户可在详情页查看失败原因，并点击“继续处理”将失败记录重新排队，Worker 会基于已保留的 checkpoint/cache 续跑。
 7. 详情页优先读取 `processing_stage` 展示当前处理阶段；旧记录没有该字段值时，会基于 `processing_tips` 回退推断。待处理/处理中记录会默认自动刷新。
+8. Worker 每次认领任务都会生成 `processing_trace_id` 并写入主表，页面和脚本可用该 ID 对照 Worker 日志定位问题。
 
 上传入口会在提交前校验必填项、文件格式、文件大小和 API 可用性；上传失败时会解析 API 返回的 `error_code`、`error_type` 和 `trace_id`，给出可操作提示。
 
@@ -58,6 +59,7 @@
 失败记录通过 `processing_status=3` 表达失败；`processing_stage` 保留失败前所在阶段，方便判断是否需要重新上传或只需继续处理。
 失败详情使用结构化字段记录：`error_code`、`error_type`、`error_message`、`retry_count`、`max_retries`、`failed_at`。旧记录没有这些字段值时，UI 仍会回退解析 `processing_tips`。
 处理耗时使用 `processing_started_at`、`stage_started_at`、`last_progress_at`、`completed_at` 记录；详情页会显示已处理时长、当前阶段停留时长和最近进度更新时间，处理中任务长时间没有进度更新时会提示可能卡住。
+任务追踪使用 `processing_trace_id` 记录 Worker 单次处理 trace。失败或完成后会保留该值，便于从页面或脚本拿到 ID 后回查日志。
 UI 详情页会将标准阶段映射到用户可理解的阶段：已上传、音频切分、语音识别、文本整理、问答抽取、逐题分析、总评生成、报告生成、完成。
 
 ## 3. LLM 处理链路
