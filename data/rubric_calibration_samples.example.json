@@ -1,0 +1,69 @@
+{
+  "version": "rubric_calibration_v1",
+  "description": "Rubric 校准样本示例。这里只放脱敏样例；真实样本请另存为本地文件，不要提交隐私数据。",
+  "samples": [
+    {
+      "id": "project_scope_good",
+      "question": "该项目团队规模如何？你主要负责哪些部分？",
+      "answer": "团队共有6人。我主要负责数据清洗、SQL模块和RAG集成，并协助意图识别模块的工作。",
+      "analysis": {
+        "answer_approach": "应说明团队规模、个人职责、技术方案和项目产出。",
+        "answer_evaluation": "回答具体，职责边界清晰，但项目结果说明略少。"
+      },
+      "expected": {
+        "answer_score": 7.5,
+        "dimensions": {
+          "relevance": 8.0,
+          "technical_accuracy": 7.0,
+          "completeness": 7.0,
+          "depth_evidence": 7.0,
+          "structure": 7.0,
+          "professional_credibility": 8.0
+        }
+      }
+    },
+    {
+      "id": "comparison_medium",
+      "question": "该流程与直接使用通用大模型相比有何优势？",
+      "answer": "知识图谱可动态更新规则，避免大模型因训练数据截止时间导致的幻觉问题，提升准确性。",
+      "analysis": {
+        "answer_approach": "应说明对比对象、优势原因、限制条件和适用场景。",
+        "answer_evaluation": "回答准确，但对限制条件和适用场景说明不足。"
+      },
+      "expected": {
+        "answer_score": 7.0,
+        "dimensions": {
+          "relevance": 7.0,
+          "technical_accuracy": 8.0,
+          "completeness": 6.5,
+          "depth_evidence": 6.5,
+          "structure": 6.5,
+          "professional_credibility": 7.0
+        }
+      }
+    },
+    {
+      "id": "vague_low",
+      "question": "你主要负责该项目中的哪些技术工作？",
+      "answer": "我主要做了一些基础工作，参与了部分模块，具体细节记不太清楚。",
+      "analysis": {
+        "answer_approach": "应说明个人职责、关键技术方案、完成结果和项目贡献。",
+        "answer_evaluation": "回答较笼统，缺乏具体技术细节和项目产出。"
+      },
+      "expected": {
+        "answer_score": 4.0,
+        "dimensions": {
+          "relevance": 5.0,
+          "technical_accuracy": 4.0,
+          "completeness": 3.5,
+          "depth_evidence": 3.0,
+          "structure": 4.0,
+          "professional_credibility": 5.0
+        }
+      }
+    }
+  ],
+  "overall": {
+    "expected_score": 6.2
+  }
+}

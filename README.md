@@ -183,6 +183,18 @@ python scripts\reset_failed_records.py
 python scripts\manage_checkpoints.py
 ```
 
+评估 Rubric 校准样本：
+
+```powershell
+python scripts\evaluate_rubric_calibration.py
+```
+
+默认读取 `data/rubric_calibration_samples.example.json`。真实人工标注样本建议另存为本地 JSON 文件，不提交隐私数据，再通过路径传入：
+
+```powershell
+python scripts\evaluate_rubric_calibration.py data\my_rubric_samples.local.json
+```
+
 ## 文档入口
 
 - [README_STARTUP.md](./README_STARTUP.md)：启动步骤
@@ -209,6 +221,7 @@ python scripts\manage_checkpoints.py
 - 详情页 ASR 断点缓存诊断
 - Rubric v1 逐题旁路评分
 - Rubric v1 整体旁路评分
+- Rubric 校准样本格式与偏差评估脚本
 - 首页记录检索、异常任务筛选和列表状态摘要
 - Worker 失败重试上限与退避
 - 多级断点续跑缓存

@@ -150,6 +150,9 @@ LLM 客户端统一在 `core/llm.py` 懒加载初始化，配置来自 `.env`，
 ## 5. 当前已识别的优化重点
 
 1. 评分一致性：继续校准 Rubric v1，将 LLM 证据抽取与本地规则聚合用于正式逐题分和总分。
+   - 示例样本格式：`data/rubric_calibration_samples.example.json`
+   - 偏差评估脚本：`scripts/evaluate_rubric_calibration.py`
+   - 建议先积累 30-50 条脱敏真实样本，每条包含问题、回答、人工期望分和可选维度分，再根据 MAE、平均偏差和维度偏差调整权重。
 2. ASR 术语准确率：引入术语词典/热词与二次纠错流程。
 3. 断点治理：为分片级断点增加 TTL 清理策略与可视化状态查询。
    - 已完成脚本层能力：`scripts/manage_asr_resume_cache.py`（status / cleanup 子命令）

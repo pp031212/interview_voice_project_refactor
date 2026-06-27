@@ -11,7 +11,8 @@ __pycache__/
 .idea/
 .vscode/
 
-data/
+data/*
+!data/rubric_calibration_samples.example.json
 markdown_reports/
 
 *.log
