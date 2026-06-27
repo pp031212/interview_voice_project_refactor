@@ -114,6 +114,20 @@ def _format_duration(seconds: int | None) -> str:
     return f"{days} 天 {hour} 小时" if hour else f"{days} 天"
 
 
+def _format_file_size(size_bytes: Any) -> str:
+    """Format file size for compact display."""
+    try:
+        size = int(size_bytes)
+    except (TypeError, ValueError):
+        return "-"
+
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / 1024 / 1024:.1f} MB"
+
+
 def _stage_index_from_stage(stage: str | InterviewProcessingStage | None) -> int | None:
     """Return stage index for a standard processing stage."""
     normalized = normalize_processing_stage(stage)
@@ -416,6 +430,115 @@ def retry_record(record_id: int | str) -> bool:
     return False
 
 
+def get_asr_resume_cache_status(record_id: int | str) -> dict[str, Any] | None:
+    """Fetch ASR resume cache status for the current record."""
+    api_base_url = get_config().api_base_url
+    try:
+        resp = requests.get(
+            f"{api_base_url}/asr_resume_cache/status",
+            params={"record_id": record_id},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        st.warning(f"获取断点缓存状态失败：{exc}")
+        return None
+
+    if resp.ok:
+        payload = resp.json()
+        return payload if isinstance(payload, dict) else {}
+
+    st.warning(f"获取断点缓存状态失败：{resp.status_code} {resp.text}")
+    return None
+
+
+def _first_dict(items: Any) -> dict[str, Any]:
+    """Return first dict item from a list-like value."""
+    if isinstance(items, list) and items and isinstance(items[0], dict):
+        return items[0]
+    return {}
+
+
+def _safe_int(value: Any) -> int | None:
+    """Convert value to int when possible."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_cache_hint(
+    data_dict: dict[str, Any],
+    status_value: int,
+    db_cache: dict[str, Any],
+    fallback_file: dict[str, Any],
+) -> str:
+    """Build user-facing cache diagnostic hint."""
+    db_segments = _safe_int(db_cache.get("segment_count")) or 0
+    file_segments = _safe_int(fallback_file.get("cached_segment_count")) or 0
+    has_cache = db_segments > 0 or file_segments > 0
+    stage = normalize_processing_stage(data_dict.get("processing_stage"))
+
+    if status_value == int(InterviewProcessingStatus.COMPLETED):
+        return "任务已完成后会清理中间缓存，当前没有缓存通常是正常状态。"
+
+    if has_cache:
+        return "已发现可复用的 ASR 分片缓存，继续处理时通常不需要重新上传录音，也不会从头识别已缓存分片。"
+
+    if status_value == int(InterviewProcessingStatus.FAILED):
+        if stage in {
+            InterviewProcessingStage.UPLOADED,
+            InterviewProcessingStage.SPLIT_AUDIO,
+        }:
+            return "失败发生在 ASR 缓存生成前；优先检查录音文件、音频切分和 FFmpeg 环境。"
+        return "未发现 ASR 分片缓存；继续处理可能需要重新执行语音识别，但不一定需要重新上传录音。"
+
+    if status_value == int(InterviewProcessingStatus.PROCESSING):
+        return "当前暂未发现 ASR 分片缓存；如果任务仍在音频切分或刚进入识别阶段，这是正常状态。"
+
+    return "任务尚未进入可产生 ASR 分片缓存的阶段。"
+
+
+def _render_resume_diagnostics(
+    record_id: int | str,
+    data_dict: dict[str, Any],
+    status_value: int,
+) -> None:
+    """Render checkpoint/cache diagnostics for troubleshooting."""
+    cache_status = get_asr_resume_cache_status(record_id)
+    if cache_status is None:
+        return
+
+    db_cache = _first_dict(cache_status.get("db_cache"))
+    fallback_file = _first_dict(cache_status.get("fallback_files"))
+    db_segments = _safe_int(db_cache.get("segment_count")) or 0
+    file_segments = _safe_int(fallback_file.get("cached_segment_count")) or 0
+    split_count = _safe_int(fallback_file.get("split_count"))
+    total_text = str(split_count) if split_count is not None else "未记录"
+
+    st.subheader("断点与缓存")
+    cols = st.columns(4)
+    cols[0].metric("DB缓存分片", db_segments)
+    cols[1].metric("兜底文件分片", file_segments)
+    cols[2].metric("总分片数", total_text)
+    cols[3].metric(
+        "最近缓存更新",
+        _format_datetime(
+            db_cache.get("last_update_time")
+            or fallback_file.get("updated_at")
+            or fallback_file.get("modified_time")
+        ),
+    )
+
+    if fallback_file:
+        st.caption(
+            "兜底文件："
+            f"{fallback_file.get('relative_path', '-')}"
+            f"（{_format_file_size(fallback_file.get('size_bytes'))}）"
+        )
+
+    st.info(_build_cache_hint(data_dict, status_value, db_cache, fallback_file))
+
+
 def _render_record_summary(data_dict: dict[str, Any]) -> int:
     """Render record status summary and return status value."""
     status = data_dict.get("processing_status", -1)
@@ -541,6 +664,7 @@ def page_detail() -> None:
         return
 
     status_value = _render_record_summary(data_dict)
+    _render_resume_diagnostics(record_id, data_dict, status_value)
 
     if status_value == int(InterviewProcessingStatus.FAILED):
         _render_failed_state(record_id, data_dict)

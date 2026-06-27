@@ -61,6 +61,7 @@
 处理耗时使用 `processing_started_at`、`stage_started_at`、`last_progress_at`、`completed_at` 记录；详情页会显示已处理时长、当前阶段停留时长和最近进度更新时间，处理中任务长时间没有进度更新时会提示可能卡住。
 任务追踪使用 `processing_trace_id` 记录 Worker 单次处理 trace。失败或完成后会保留该值，便于从页面或脚本拿到 ID 后回查日志。
 UI 详情页会将标准阶段映射到用户可理解的阶段：已上传、音频切分、语音识别、文本整理、问答抽取、逐题分析、总评生成、报告生成、完成。
+UI 详情页还会查询 `GET /asr_resume_cache/status?record_id=<id>`，展示 ASR 分片 DB 缓存、文件兜底缓存和继续处理建议，辅助判断是否需要重新上传录音。
 
 ## 3. LLM 处理链路
 
@@ -153,7 +154,7 @@ LLM 客户端统一在 `core/llm.py` 懒加载初始化，配置来自 `.env`，
    - DB 层：`DatabaseHelper.get_asr_segment_cache_status()` 和 `clear_expired_asr_segment_cache()`
    - 配置：`ASR_RESUME_CACHE_TTL_DAYS`（默认 7 天）
    - API 查询接口：`GET /asr_resume_cache/status?record_id=<id>`（只读，不含清理接口）
-   - UI 可视化待后续推进
+   - UI 详情页：展示当前记录的 ASR 分片缓存、兜底文件和排障建议
 
 ## 6. 2026-03-03 增量更新（断点粒度）
 

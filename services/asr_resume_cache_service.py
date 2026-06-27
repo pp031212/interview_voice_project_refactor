@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +33,30 @@ def _parse_record_id_from_filename(filename: str) -> int | None:
         except (ValueError, TypeError):
             return None
     return None
+
+
+def _read_fallback_file_summary(path: Path) -> dict:
+    """读取 ASR 兜底缓存文件的摘要信息。"""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {
+            "split_count": None,
+            "cached_segment_count": None,
+            "updated_at": None,
+        }
+
+    meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    results = payload.get("results", {}) if isinstance(payload, dict) else {}
+    split_count = meta.get("split_count") if isinstance(meta, dict) else None
+    updated_at = meta.get("updated_at") if isinstance(meta, dict) else None
+    cached_segment_count = len(results) if isinstance(results, dict) else None
+
+    return {
+        "split_count": split_count if isinstance(split_count, int) else None,
+        "cached_segment_count": cached_segment_count,
+        "updated_at": updated_at if isinstance(updated_at, str) else None,
+    }
 
 
 class AsrResumeCacheService:
@@ -91,6 +116,7 @@ class AsrResumeCacheService:
 
             stat = entry.stat()
             relative_path = to_project_relative_path(str(entry))
+            file_summary = _read_fallback_file_summary(entry)
 
             results.append(
                 {
@@ -99,6 +125,7 @@ class AsrResumeCacheService:
                     "relative_path": relative_path,
                     "modified_time": datetime.fromtimestamp(stat.st_mtime),
                     "size_bytes": stat.st_size,
+                    **file_summary,
                 }
             )
 

@@ -23,6 +23,9 @@ class AsrResumeFileItem(BaseModel):
     relative_path: str = Field(..., description="项目相对路径")
     modified_time: datetime = Field(..., description="文件最后修改时间")
     size_bytes: int = Field(..., description="文件大小（字节）")
+    split_count: int | None = Field(None, description="该任务总分片数")
+    cached_segment_count: int | None = Field(None, description="文件中已缓存分片数")
+    updated_at: str | None = Field(None, description="文件内记录的更新时间")
 
 
 class AsrResumeCacheStatusResponse(BaseModel):
