@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS tb_interview_recording_analysis_detail (
     answer_thoughts TEXT NULL COMMENT '答题思路',
     answer_evaluation TEXT NULL COMMENT '回答评价',
     answer_score FLOAT NULL COMMENT '回答评分',
+    rubric_score FLOAT NULL COMMENT 'Rubric评分',
+    rubric_json LONGTEXT NULL COMMENT 'Rubric评分详情JSON',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='面试录音分析明细表';
@@ -122,6 +124,12 @@ MODIFY COLUMN processing_tips LONGTEXT COMMENT '处理提示';
 -- ADD COLUMN last_progress_at DATETIME NULL COMMENT '最近进度更新时间' AFTER stage_started_at;
 -- ALTER TABLE tb_interview_recording_analysis
 -- ADD COLUMN completed_at DATETIME NULL COMMENT '完成时间' AFTER last_progress_at;
+
+-- 兼容旧库：如果面试明细表缺少 Rubric 旁路评分字段，请执行下面语句补列
+-- ALTER TABLE tb_interview_recording_analysis_detail
+-- ADD COLUMN rubric_score FLOAT NULL COMMENT 'Rubric评分' AFTER answer_score;
+-- ALTER TABLE tb_interview_recording_analysis_detail
+-- ADD COLUMN rubric_json LONGTEXT NULL COMMENT 'Rubric评分详情JSON' AFTER rubric_score;
 
 ALTER TABLE tb_interview_recording_analysis
 MODIFY COLUMN overall_comments LONGTEXT COMMENT '整体点评';

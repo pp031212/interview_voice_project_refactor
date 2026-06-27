@@ -76,7 +76,7 @@ LLM 客户端统一在 `core/llm.py` 懒加载初始化，配置来自 `.env`，
 - 若任务专属未配置，则回退到默认 `MODEL_*`
 - 默认模型对象为懒加载代理：即使 `MODEL_NAME` 未配置，也不会在 import 阶段直接抛错
 
-说明：当前评分与分析依赖 LLM 输出，没有本地规则引擎聚合分数。
+说明：当前报告的正式整体评分仍来自 LLM 输出；逐题分析阶段已额外生成 `rubric_v1` 旁路评分，用本地固定权重聚合相关性、技术准确性、完整度、深度与证据、表达结构和职业可信度，便于后续校准或替换正式评分。
 
 ### 3.1 全文整理（`__003__voice_text_arrange_node`）
 
@@ -113,6 +113,7 @@ LLM 客户端统一在 `core/llm.py` 懒加载初始化，配置来自 `.env`，
 - 仍失败时落兜底结构，避免流水线中断
 - 输出：增强后的 `interview_topic_list`
 - 数据落库：写入面试明细表
+- Rubric 旁路评分：节点会在每题 LLM 分析完成后调用 `core.rubric.evaluate_answer_rubric()`，生成 `rubric_score` 和 `rubric_json`。该分数不会覆盖 LLM 原始 `score`，Markdown 中会并排展示模型评分与 Rubric v1 旁路评分。
 
 ### 3.4 整场面试总评（`__006__offer_interview_advice_node`）
 
@@ -147,7 +148,7 @@ LLM 客户端统一在 `core/llm.py` 懒加载初始化，配置来自 `.env`，
 
 ## 5. 当前已识别的优化重点
 
-1. 评分一致性：引入本地 Rubric 与规则聚合，降低不同模型评分漂移。
+1. 评分一致性：继续校准 Rubric v1，将 LLM 证据抽取与本地规则聚合用于正式总分。
 2. ASR 术语准确率：引入术语词典/热词与二次纠错流程。
 3. 断点治理：为分片级断点增加 TTL 清理策略与可视化状态查询。
    - 已完成脚本层能力：`scripts/manage_asr_resume_cache.py`（status / cleanup 子命令）

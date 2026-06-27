@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Integer, Float, Text, DateTime
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.sql import func
 
 from infra.db.model.base import Base
@@ -16,6 +17,8 @@ class TbInterviewRecordingAnalysisDetail(Base):
     answer_thoughts = Column(Text, nullable=True, comment='答题思路')
     answer_evaluation = Column(Text, nullable=True, comment='回答评价')
     answer_score = Column(Float, nullable=True, comment='回答评分')
+    rubric_score = Column(Float, nullable=True, comment='Rubric评分')
+    rubric_json = Column(LONGTEXT, nullable=True, comment='Rubric评分详情JSON')
 
     # 创建时间
     create_time = Column(DateTime, default=func.now(), comment='创建时间')

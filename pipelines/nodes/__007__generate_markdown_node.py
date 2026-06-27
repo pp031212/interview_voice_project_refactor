@@ -7,10 +7,48 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from pipelines.agent_state import AgentState
-from infra.db.db_helper import my_db_helper
-from infra.update_mysql import update_mysql
-from core.utils.path_utils import get_file_path
+from pipelines.agent_state import AgentState  # noqa: E402
+from infra.db.db_helper import my_db_helper  # noqa: E402
+from infra.update_mysql import update_mysql  # noqa: E402
+from core.utils.path_utils import get_file_path  # noqa: E402
+
+
+def _format_rubric_summary(rubric):
+    """Format rubric_v1 sidecar score for Markdown."""
+    if not isinstance(rubric, dict):
+        return []
+
+    md_parts = []
+    score = rubric.get("score", "")
+    md_parts.append(f"  - **Rubric v1旁路评分**：{score}\n")
+
+    dimensions = rubric.get("dimensions", {})
+    if isinstance(dimensions, dict):
+        dimension_text = []
+        labels = {
+            "relevance": "相关性",
+            "technical_accuracy": "技术准确性",
+            "completeness": "完整度",
+            "depth_evidence": "深度与证据",
+            "structure": "表达结构",
+            "professional_credibility": "职业可信度",
+        }
+        for key, label in labels.items():
+            item = dimensions.get(key, {})
+            if isinstance(item, dict):
+                dimension_text.append(f"{label} {item.get('score', '-')}")
+        if dimension_text:
+            md_parts.append(f"  - **Rubric维度**：{'；'.join(dimension_text)}\n")
+
+    evidence = rubric.get("answer_evidence", [])
+    if isinstance(evidence, list) and evidence:
+        md_parts.append(f"  - **Rubric证据**：{'；'.join(map(str, evidence[:2]))}\n")
+
+    missing_points = rubric.get("missing_points", [])
+    if isinstance(missing_points, list) and missing_points:
+        md_parts.append(f"  - **Rubric缺失点**：{'；'.join(map(str, missing_points[:3]))}\n")
+
+    return md_parts
 
 
 async def generate_markdown_node(state: AgentState):
@@ -30,10 +68,10 @@ async def generate_markdown_node(state: AgentState):
     # 第一部分：整体建议
     md_parts.append("## 一、面试表现分析与建议\n")
 
-    md_parts.append(f"### 1、整体点评：\n")
+    md_parts.append("### 1、整体点评：\n")
     md_parts.append(f"\n{interview_advice['overall_comment']}\n")
 
-    md_parts.append(f"### 2、整体评分：\n")
+    md_parts.append("### 2、整体评分：\n")
     md_parts.append(f"\n{interview_advice['overall_score']}\n")
 
     md_parts.append("### 3、优势:\n")
@@ -61,11 +99,12 @@ async def generate_markdown_node(state: AgentState):
         # 面试题分析
         if 'analysis' in qa and qa['analysis']:
             analysis = qa['analysis']
-            md_parts.append(f"- **面试题分析**：\n")
+            md_parts.append("- **面试题分析**：\n")
             md_parts.append(f"  - **考点分析**：{analysis.get('exam_point', '')}\n")
             md_parts.append(f"  - **答题思路**：{analysis.get('answer_approach', '')}\n")
             md_parts.append(f"  - **回答评价**：{analysis.get('answer_evaluation', '')}\n")
-            md_parts.append(f"  - **回答评分**：{analysis.get('score', '')}\n")
+            md_parts.append(f"  - **模型回答评分**：{analysis.get('score', '')}\n")
+            md_parts.extend(_format_rubric_summary(qa.get("rubric")))
 
     # 拼接 markdown
     markdown_doc = "\n".join(md_parts)
@@ -98,7 +137,7 @@ async def generate_markdown_node(state: AgentState):
             state["record_id"], 
             {"markdown_text": markdown_doc}
         )
-        print(f"✓ Markdown已保存到数据库")
+        print("✓ Markdown已保存到数据库")
     except Exception as e:
         print(f"❌ 保存到数据库失败: {e}")
         print(f"✓ 但文件已保存，可以从文件恢复: {markdown_file_path}")

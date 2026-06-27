@@ -220,6 +220,38 @@ def fix_text_columns():
                         print(f"  ✓ {column_name}: 已补齐兼容列")
                     else:
                         print(f"  ✓ {column_name}: 已存在，跳过")
+
+                detail_columns_to_add = [
+                    (
+                        "rubric_score",
+                        "FLOAT NULL COMMENT 'Rubric评分' AFTER answer_score",
+                    ),
+                    (
+                        "rubric_json",
+                        "LONGTEXT NULL COMMENT 'Rubric评分详情JSON' AFTER rubric_score",
+                    ),
+                ]
+                for column_name, column_definition in detail_columns_to_add:
+                    column = conn.execute(
+                        text("""
+                            SELECT COLUMN_NAME
+                            FROM INFORMATION_SCHEMA.COLUMNS
+                            WHERE TABLE_SCHEMA = :database
+                            AND TABLE_NAME = 'tb_interview_recording_analysis_detail'
+                            AND COLUMN_NAME = :column_name
+                        """),
+                        {"database": database, "column_name": column_name},
+                    ).fetchone()
+                    if column is None:
+                        conn.execute(
+                            text(
+                                "ALTER TABLE tb_interview_recording_analysis_detail "
+                                f"ADD COLUMN {column_name} {column_definition}"
+                            )
+                        )
+                        print(f"  ✓ {column_name}: 已补齐明细兼容列")
+                    else:
+                        print(f"  ✓ {column_name}: 已存在，跳过")
                 
                 # 提交事务
                 trans.commit()

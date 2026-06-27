@@ -1,4 +1,5 @@
 import ast
+import json
 
 
 def literal_eval(str_data):
@@ -6,6 +7,42 @@ def literal_eval(str_data):
         return ast.literal_eval(str_data)
     except Exception:
         return []
+
+
+def parse_json(str_data):
+    try:
+        return json.loads(str_data or "{}")
+    except Exception:
+        return {}
+
+
+def format_rubric_summary(rubric):
+    if not isinstance(rubric, dict) or not rubric:
+        return []
+
+    md_parts = [f"  - **Rubric v1旁路评分**：{rubric.get('score', '')}\n"]
+    dimensions = rubric.get("dimensions", {})
+    if isinstance(dimensions, dict):
+        labels = {
+            "relevance": "相关性",
+            "technical_accuracy": "技术准确性",
+            "completeness": "完整度",
+            "depth_evidence": "深度与证据",
+            "structure": "表达结构",
+            "professional_credibility": "职业可信度",
+        }
+        dimension_text = []
+        for key, label in labels.items():
+            item = dimensions.get(key, {})
+            if isinstance(item, dict):
+                dimension_text.append(f"{label} {item.get('score', '-')}")
+        if dimension_text:
+            md_parts.append(f"  - **Rubric维度**：{'；'.join(dimension_text)}\n")
+
+    missing_points = rubric.get("missing_points", [])
+    if isinstance(missing_points, list) and missing_points:
+        md_parts.append(f"  - **Rubric缺失点**：{'；'.join(map(str, missing_points[:3]))}\n")
+    return md_parts
 
 
 def generate_markdown(records, detail_list):
@@ -52,6 +89,7 @@ def generate_markdown(records, detail_list):
         answer_thoughts = qa.get("answer_thoughts", "")
         answer_evaluation = qa.get("answer_evaluation", "")
         answer_score = qa.get("answer_score", 0.0)
+        rubric = parse_json(qa.get("rubric_json", ""))
 
         md_parts.append(f"### 问题 {idx}: {interview_question}\n")
         md_parts.append(f"- **面试者回答**：\n\n{interviewee_answer}\n")
@@ -61,6 +99,7 @@ def generate_markdown(records, detail_list):
         md_parts.append(f"  - **考点分析**：{point_analysis}\n")
         md_parts.append(f"  - **答题思路**：{answer_thoughts}\n")
         md_parts.append(f"  - **回答评价**：{answer_evaluation}\n")
-        md_parts.append(f"  - **回答评分**：{answer_score}\n")
+        md_parts.append(f"  - **模型回答评分**：{answer_score}\n")
+        md_parts.extend(format_rubric_summary(rubric))
 
     return "\n".join(md_parts)

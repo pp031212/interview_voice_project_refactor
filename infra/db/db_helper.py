@@ -46,6 +46,7 @@ class DatabaseHelper:
             try:
                 Base.metadata.create_all(self.engine)
                 self._ensure_interview_recording_analysis_columns()
+                self._ensure_interview_recording_analysis_detail_columns()
                 self._tables_created = True
             except Exception as exc:
                 print(f"警告: 创建数据库表时出错: {exc}")
@@ -123,6 +124,35 @@ class DatabaseHelper:
                     conn.execute(
                         text(
                             "ALTER TABLE tb_interview_recording_analysis "
+                            f"ADD COLUMN {column_name} {column_definition}"
+                        )
+                    )
+
+    def _ensure_interview_recording_analysis_detail_columns(self) -> None:
+        """补齐旧库缺失的面试明细表列。"""
+        with self.engine.begin() as conn:
+            columns_to_add = [
+                (
+                    "rubric_score",
+                    "FLOAT NULL COMMENT 'Rubric评分' AFTER answer_score",
+                ),
+                (
+                    "rubric_json",
+                    "LONGTEXT NULL COMMENT 'Rubric评分详情JSON' AFTER rubric_score",
+                ),
+            ]
+
+            for column_name, column_definition in columns_to_add:
+                exists = conn.execute(
+                    text(
+                        "SHOW COLUMNS FROM tb_interview_recording_analysis_detail "
+                        f"LIKE '{column_name}'"
+                    )
+                ).fetchone()
+                if exists is None:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE tb_interview_recording_analysis_detail "
                             f"ADD COLUMN {column_name} {column_definition}"
                         )
                     )
@@ -795,6 +825,8 @@ class DatabaseHelper:
         answer_thoughts: str | None = None,
         answer_evaluation: str | None = None,
         answer_score: float | None = None,
+        rubric_score: float | None = None,
+        rubric_json: str | None = None,
     ) -> int:
         """添加面试记录分析详情。
 
@@ -807,6 +839,8 @@ class DatabaseHelper:
             answer_thoughts: 答题思路。
             answer_evaluation: 回答评价。
             answer_score: 回答评分。
+            rubric_score: Rubric 本地旁路评分。
+            rubric_json: Rubric 本地评分详情 JSON。
 
         Returns:
             int: 新详情记录的 ID。
@@ -829,6 +863,8 @@ class DatabaseHelper:
                 answer_thoughts=answer_thoughts,
                 answer_evaluation=answer_evaluation,
                 answer_score=answer_score,
+                rubric_score=rubric_score,
+                rubric_json=rubric_json,
             )
 
             session.add(new_detail)

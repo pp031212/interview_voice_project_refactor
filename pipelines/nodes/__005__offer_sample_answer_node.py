@@ -1,21 +1,23 @@
 import sys
 import os
 import re
+import json
 
 # Add project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
+from langchain_core.output_parsers import JsonOutputParser  # noqa: E402
+from langchain_core.prompts import ChatPromptTemplate  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
-from pipelines.agent_state import AgentState
-from infra.update_mysql import update_mysql
-from core.llm import get_report_llm
-from core.llm_output_utils import extract_json_payload
-from infra.db.db_helper import my_db_helper
+from pipelines.agent_state import AgentState  # noqa: E402
+from infra.update_mysql import update_mysql  # noqa: E402
+from core.llm import get_report_llm  # noqa: E402
+from core.llm_output_utils import extract_json_payload  # noqa: E402
+from core.rubric import evaluate_answer_rubric  # noqa: E402
+from infra.db.db_helper import my_db_helper  # noqa: E402
 
 
 # 定义 Pydantic 模型，用于标准化 JSON 输出
@@ -178,6 +180,33 @@ def _normalize_result(result: dict, qa: dict) -> dict:
     }
 
 
+def _apply_rubric(qa: dict) -> dict:
+    """Attach deterministic rubric_v1 sidecar evaluation to a QA item."""
+    rubric = evaluate_answer_rubric(
+        question=str(qa.get("question", "")),
+        answer=str(qa.get("user_answer", "")),
+        analysis=qa.get("analysis", {}),
+    )
+    return {**qa, "rubric": rubric}
+
+
+def _rubric_score(qa: dict) -> float | None:
+    rubric = qa.get("rubric", {})
+    if not isinstance(rubric, dict):
+        return None
+    try:
+        return float(rubric.get("score"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _rubric_json(qa: dict) -> str | None:
+    rubric = qa.get("rubric", {})
+    if not isinstance(rubric, dict) or not rubric:
+        return None
+    return json.dumps(rubric, ensure_ascii=False)
+
+
 async def process_single_qa(qa: dict, chain) -> dict:
     """
     处理单个问答对，生成分析和参考答案（JSON格式）
@@ -213,7 +242,7 @@ async def process_single_qa(qa: dict, chain) -> dict:
         # 尝试直接解析
         result = parser.parse(collected_text)
     except Exception as e:
-        print(f"\n⚠️ JSON 解析失败，尝试修复...")
+        print("\n⚠️ JSON 解析失败，尝试修复...")
         print(f"错误: {e}")
 
         fixed_text = _sanitize_json_text(collected_text)
@@ -275,7 +304,9 @@ async def offer_sample_answer_node(state: AgentState):
                 record_id=state["record_id"],
             )
             qa_with_llm = await process_single_qa(qa, chain)
-            my_db_helper.upsert_analysis_cache(state["record_id"], i, qa_with_llm)
+
+        qa_with_llm = _apply_rubric(qa_with_llm)
+        my_db_helper.upsert_analysis_cache(state["record_id"], i, qa_with_llm)
 
         new_interview_topic_list.append(qa_with_llm)
 
@@ -295,6 +326,8 @@ async def offer_sample_answer_node(state: AgentState):
             answer_thoughts=qa.get("analysis", {}).get("answer_approach", ""),
             answer_evaluation=qa.get("analysis", {}).get("answer_evaluation", ""),
             answer_score=qa.get("analysis", {}).get("score", 0.0),
+            rubric_score=_rubric_score(qa),
+            rubric_json=_rubric_json(qa),
         )
     return state
 
