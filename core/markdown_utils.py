@@ -45,6 +45,28 @@ def format_rubric_summary(rubric):
     return md_parts
 
 
+def format_overall_rubric_summary(overall_rubric):
+    if not isinstance(overall_rubric, dict) or not overall_rubric:
+        return []
+
+    md_parts = [f"\n**Rubric v1整体旁路评分**：{overall_rubric.get('score', '')}\n"]
+    components = overall_rubric.get("components", {})
+    if isinstance(components, dict):
+        labels = {
+            "question_average": "逐题Rubric加权均分",
+            "expression_consistency": "全场表达稳定性",
+            "job_fit": "岗位匹配度",
+            "risk_adjustment": "风险调整",
+        }
+        for key, label in labels.items():
+            item = components.get(key, {})
+            if isinstance(item, dict):
+                md_parts.append(
+                    f"- {label}：{item.get('score', '-')}，{item.get('reason', '')}"
+                )
+    return md_parts
+
+
 def generate_markdown(records, detail_list):
     if len(records) <= 0:
         return ""
@@ -52,6 +74,7 @@ def generate_markdown(records, detail_list):
     interview_date_str = str(records[0].get("interview_time", ""))
     overall_comment = records[0].get("overall_comments", "")
     overall_score = records[0].get("interview_score", 0.0)
+    overall_rubric = parse_json(records[0].get("overall_rubric_json", ""))
     strengths = literal_eval(records[0].get("strengths", ""))
     weaknesses = literal_eval(records[0].get("weaknesses", ""))
     improvements_suggestions = literal_eval(records[0].get("improvement_suggestions", ""))
@@ -66,7 +89,8 @@ def generate_markdown(records, detail_list):
     md_parts.append(f"\n{overall_comment}\n")
 
     md_parts.append("### 2、整体评分：\n")
-    md_parts.append(f"\n{overall_score}\n")
+    md_parts.append(f"\n**模型整体评分**：{overall_score}\n")
+    md_parts.extend(format_overall_rubric_summary(overall_rubric))
 
     md_parts.append("### 3、优势:\n")
     for strength in strengths:

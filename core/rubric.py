@@ -6,6 +6,7 @@ from typing import Any
 
 
 RUBRIC_VERSION = "rubric_v1"
+OVERALL_RUBRIC_VERSION = "overall_rubric_v1"
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,23 @@ DIMENSION_WEIGHTS: dict[str, float] = {
     "depth_evidence": 0.20,
     "structure": 0.10,
     "professional_credibility": 0.05,
+}
+
+OVERALL_COMPONENT_WEIGHTS: dict[str, float] = {
+    "question_average": 0.70,
+    "expression_consistency": 0.15,
+    "job_fit": 0.10,
+    "risk_adjustment": 0.05,
+}
+
+QUESTION_INTENT_WEIGHTS: dict[str, float] = {
+    "technical_solution": 1.4,
+    "comparison_reasoning": 1.3,
+    "project_experience": 1.2,
+    "self_introduction": 1.0,
+    "confirmation_boundary": 0.9,
+    "candidate_questions": 0.7,
+    "general": 1.0,
 }
 
 INTENT_EXPECTED_POINTS: dict[str, list[str]] = {
@@ -167,6 +185,63 @@ def evaluate_answer_rubric(
     }
 
 
+def evaluate_overall_rubric(
+    qa_items: list[dict[str, Any]],
+    advice: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Aggregate per-question rubric scores into an overall sidecar score.
+
+    Args:
+        qa_items: Interview QA items. Each item should carry a ``rubric`` dict
+            from :func:`evaluate_answer_rubric`.
+        advice: Existing LLM advice dict. Kept for future calibration; this
+            v1 aggregator does not let the LLM directly decide the score.
+
+    Returns:
+        JSON-serializable overall rubric result.
+    """
+    normalized_items = _normalize_qa_rubrics(qa_items)
+    if not normalized_items:
+        components = {
+            key: DimensionScore(0.0, weight, "未检测到逐题 Rubric 结果")
+            for key, weight in OVERALL_COMPONENT_WEIGHTS.items()
+        }
+    else:
+        components = {
+            "question_average": _overall_question_average(normalized_items),
+            "expression_consistency": _overall_expression_consistency(
+                normalized_items
+            ),
+            "job_fit": _overall_job_fit(normalized_items),
+            "risk_adjustment": _overall_risk_adjustment(normalized_items, advice),
+        }
+
+    score = sum(component.score * component.weight for component in components.values())
+    question_scores = [
+        {
+            "index": index + 1,
+            "score": item["score"],
+            "weight": item["weight"],
+            "intent": item["intent"],
+        }
+        for index, item in enumerate(normalized_items)
+    ]
+
+    return {
+        "version": OVERALL_RUBRIC_VERSION,
+        "score": round(_clamp(score), 1),
+        "components": {
+            key: {
+                "score": round(value.score, 1),
+                "weight": value.weight,
+                "reason": value.reason,
+            }
+            for key, value in components.items()
+        },
+        "question_scores": question_scores,
+    }
+
+
 def classify_question_intent(question: str) -> str:
     """Classify question into a stable coarse intent."""
     if any(keyword in question for keyword in ("自我介绍", "介绍一下", "背景")):
@@ -182,6 +257,134 @@ def classify_question_intent(question: str) -> str:
     if any(keyword in question for keyword in ("如何", "怎么", "流程", "实现", "架构")):
         return "technical_solution"
     return "general"
+
+
+def _normalize_qa_rubrics(qa_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for qa in qa_items:
+        if not isinstance(qa, dict):
+            continue
+        rubric = qa.get("rubric", {})
+        if not isinstance(rubric, dict):
+            continue
+        score = _safe_float(rubric.get("score"))
+        if score is None:
+            continue
+        intent = str(rubric.get("question_intent") or "general")
+        dimensions = rubric.get("dimensions", {})
+        normalized.append(
+            {
+                "score": _clamp(score),
+                "weight": QUESTION_INTENT_WEIGHTS.get(intent, 1.0),
+                "intent": intent,
+                "dimensions": dimensions if isinstance(dimensions, dict) else {},
+                "missing_points": rubric.get("missing_points", []),
+                "off_topic_content": rubric.get("off_topic_content", []),
+            }
+        )
+    return normalized
+
+
+def _overall_question_average(items: list[dict[str, Any]]) -> DimensionScore:
+    total_weight = sum(float(item["weight"]) for item in items)
+    score = sum(float(item["score"]) * float(item["weight"]) for item in items)
+    score = score / total_weight if total_weight else 0.0
+    reason = f"按题型权重聚合 {len(items)} 道题的逐题 Rubric 分"
+    return DimensionScore(
+        _clamp(score),
+        OVERALL_COMPONENT_WEIGHTS["question_average"],
+        reason,
+    )
+
+
+def _overall_expression_consistency(items: list[dict[str, Any]]) -> DimensionScore:
+    structure_scores = [
+        _dimension_score(item, "structure")
+        for item in items
+        if _dimension_score(item, "structure") is not None
+    ]
+    relevance_scores = [
+        _dimension_score(item, "relevance")
+        for item in items
+        if _dimension_score(item, "relevance") is not None
+    ]
+    base_scores = structure_scores or [float(item["score"]) for item in items]
+    average = sum(base_scores) / len(base_scores)
+    variation = max(base_scores) - min(base_scores) if len(base_scores) > 1 else 0.0
+    low_relevance_count = sum(score < 5.0 for score in relevance_scores)
+    score = average - min(variation * 0.25, 1.5) - low_relevance_count * 0.4
+    reason = (
+        f"表达结构均分 {average:.1f}，波动 {variation:.1f}，"
+        f"低相关回答 {low_relevance_count} 个"
+    )
+    return DimensionScore(
+        _clamp(score),
+        OVERALL_COMPONENT_WEIGHTS["expression_consistency"],
+        reason,
+    )
+
+
+def _overall_job_fit(items: list[dict[str, Any]]) -> DimensionScore:
+    fit_scores: list[float] = []
+    for item in items:
+        technical = _dimension_score(item, "technical_accuracy")
+        depth = _dimension_score(item, "depth_evidence")
+        if technical is not None and depth is not None:
+            fit_scores.append((technical * 0.6) + (depth * 0.4))
+    if not fit_scores:
+        fit_scores = [float(item["score"]) for item in items]
+
+    score = sum(fit_scores) / len(fit_scores)
+    strong_count = sum(item["intent"] in {"technical_solution", "project_experience"} for item in items)
+    reason = f"技术准确性与证据深度聚合，核心技术/项目题 {strong_count} 道"
+    return DimensionScore(
+        _clamp(score),
+        OVERALL_COMPONENT_WEIGHTS["job_fit"],
+        reason,
+    )
+
+
+def _overall_risk_adjustment(
+    items: list[dict[str, Any]],
+    advice: dict[str, Any] | None,
+) -> DimensionScore:
+    low_score_count = sum(float(item["score"]) < 5.0 for item in items)
+    off_topic_count = sum(bool(item.get("off_topic_content")) for item in items)
+    missing_count = sum(len(item.get("missing_points") or []) for item in items)
+
+    weakness_count = 0
+    if isinstance(advice, dict) and isinstance(advice.get("weaknesses"), list):
+        weakness_count = len(advice.get("weaknesses", []))
+
+    score = 10.0 - low_score_count * 1.0 - off_topic_count * 1.2
+    score -= min(missing_count * 0.15, 2.0)
+    score -= min(weakness_count * 0.2, 1.0)
+    reason = (
+        f"低分题 {low_score_count} 个，疑似跑题 {off_topic_count} 个，"
+        f"缺失点 {missing_count} 个"
+    )
+    return DimensionScore(
+        _clamp(score),
+        OVERALL_COMPONENT_WEIGHTS["risk_adjustment"],
+        reason,
+    )
+
+
+def _dimension_score(item: dict[str, Any], key: str) -> float | None:
+    dimensions = item.get("dimensions", {})
+    if not isinstance(dimensions, dict):
+        return None
+    dimension = dimensions.get(key, {})
+    if not isinstance(dimension, dict):
+        return None
+    return _safe_float(dimension.get("score"))
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _normalize_text(text: str | None) -> str:

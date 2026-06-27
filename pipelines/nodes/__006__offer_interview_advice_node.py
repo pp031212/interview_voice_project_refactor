@@ -1,29 +1,30 @@
 import sys
 import os
+import json
 
 # Add project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from typing import List
-from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-from pipelines.agent_state import AgentState
-from infra.update_mysql import update_mysql
-from core.llm import get_report_llm
-from core.llm_output_utils import extract_json_payload
-from infra.db.db_helper import my_db_helper
+from pydantic import BaseModel, Field  # noqa: E402
+from langchain_core.prompts import ChatPromptTemplate  # noqa: E402
+from langchain_core.output_parsers import JsonOutputParser  # noqa: E402
+from pipelines.agent_state import AgentState  # noqa: E402
+from infra.update_mysql import update_mysql  # noqa: E402
+from core.llm import get_report_llm  # noqa: E402
+from core.llm_output_utils import extract_json_payload  # noqa: E402
+from core.rubric import evaluate_overall_rubric  # noqa: E402
+from infra.db.db_helper import my_db_helper  # noqa: E402
 
 
 # 定义 Pydantic schema
 class InterviewAdvice(BaseModel):
     overall_comment: str = Field(description="对整体面试表现的点评")
     overall_score: float = Field(description="面试整体评分，满分10分")
-    strengths: List[str] = Field(description="面试者的优势点")
-    weaknesses: List[str] = Field(description="面试者的不足之处")
-    suggestions: List[str] = Field(description="改进建议")
+    strengths: list[str] = Field(description="面试者的优势点")
+    weaknesses: list[str] = Field(description="面试者的不足之处")
+    suggestions: list[str] = Field(description="改进建议")
 
 
 parser = JsonOutputParser(pydantic_object=InterviewAdvice)
@@ -67,6 +68,19 @@ def _normalize_advice(result: dict) -> dict:
         "weaknesses": [str(x) for x in weaknesses],
         "suggestions": [str(x) for x in suggestions],
     }
+
+
+def _overall_rubric_score(overall_rubric: dict) -> float | None:
+    try:
+        return float(overall_rubric.get("score"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _overall_rubric_json(overall_rubric: dict) -> str | None:
+    if not isinstance(overall_rubric, dict) or not overall_rubric:
+        return None
+    return json.dumps(overall_rubric, ensure_ascii=False)
 
 
 async def offer_interview_advice_node(state: AgentState):
@@ -121,6 +135,11 @@ async def offer_interview_advice_node(state: AgentState):
             print("⚠️ 已使用总评保底结果继续处理，避免流程中断。")
 
     advice_dict = _normalize_advice(advice_dict)
+    overall_rubric = evaluate_overall_rubric(
+        state.get("interview_topic_list", []),
+        advice_dict,
+    )
+    advice_dict["overall_rubric"] = overall_rubric
     print(advice_dict)
 
     state["interview_advice"] = advice_dict
@@ -130,11 +149,18 @@ async def offer_interview_advice_node(state: AgentState):
     strengths = str(advice_dict.get("strengths", []))
     weaknesses = str(advice_dict.get("weaknesses", []))
     improvement_suggestions = str(advice_dict.get("suggestions", []))
-    my_db_helper.update_interview_record(state["record_id"], {"overall_comments": overall_comments,
-                                                              "interview_score": overall_score,
-                                                              "strengths": strengths,
-                                                              "weaknesses": weaknesses,
-                                                              "improvement_suggestions": improvement_suggestions})
+    my_db_helper.update_interview_record(
+        state["record_id"],
+        {
+            "overall_comments": overall_comments,
+            "interview_score": overall_score,
+            "overall_rubric_score": _overall_rubric_score(overall_rubric),
+            "overall_rubric_json": _overall_rubric_json(overall_rubric),
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "improvement_suggestions": improvement_suggestions,
+        },
+    )
     return state
 
 

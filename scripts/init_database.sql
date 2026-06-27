@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS tb_interview_recording_analysis (
     completed_at DATETIME NULL COMMENT '完成时间',
     overall_comments LONGTEXT NULL COMMENT '整体点评',
     interview_score FLOAT NULL COMMENT '面试评分',
+    overall_rubric_score FLOAT NULL COMMENT 'Rubric整体评分',
+    overall_rubric_json LONGTEXT NULL COMMENT 'Rubric整体评分详情JSON',
     strengths LONGTEXT NULL COMMENT '优势点',
     weaknesses LONGTEXT NULL COMMENT '不足点',
     improvement_suggestions LONGTEXT NULL COMMENT '改进建议',
@@ -124,6 +126,10 @@ MODIFY COLUMN processing_tips LONGTEXT COMMENT '处理提示';
 -- ADD COLUMN last_progress_at DATETIME NULL COMMENT '最近进度更新时间' AFTER stage_started_at;
 -- ALTER TABLE tb_interview_recording_analysis
 -- ADD COLUMN completed_at DATETIME NULL COMMENT '完成时间' AFTER last_progress_at;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN overall_rubric_score FLOAT NULL COMMENT 'Rubric整体评分' AFTER interview_score;
+-- ALTER TABLE tb_interview_recording_analysis
+-- ADD COLUMN overall_rubric_json LONGTEXT NULL COMMENT 'Rubric整体评分详情JSON' AFTER overall_rubric_score;
 
 -- 兼容旧库：如果面试明细表缺少 Rubric 旁路评分字段，请执行下面语句补列
 -- ALTER TABLE tb_interview_recording_analysis_detail

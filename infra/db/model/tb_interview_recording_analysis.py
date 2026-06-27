@@ -34,6 +34,8 @@ class TbInterviewRecordingAnalysis(Base):
     completed_at = Column(DateTime, nullable=True, comment='完成时间')
     overall_comments = Column(LONGTEXT, nullable=True, comment='整体点评')
     interview_score = Column(Float, nullable=True, comment='面试评分')
+    overall_rubric_score = Column(Float, nullable=True, comment='Rubric整体评分')
+    overall_rubric_json = Column(LONGTEXT, nullable=True, comment='Rubric整体评分详情JSON')
     strengths = Column(LONGTEXT, nullable=True, comment='优势点')
     weaknesses = Column(LONGTEXT, nullable=True, comment='不足点')
     improvement_suggestions = Column(LONGTEXT, nullable=True, comment='改进建议')

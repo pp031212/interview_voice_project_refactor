@@ -51,6 +51,32 @@ def _format_rubric_summary(rubric):
     return md_parts
 
 
+def _format_overall_rubric_summary(overall_rubric):
+    """Format overall rubric_v1 sidecar score for Markdown."""
+    if not isinstance(overall_rubric, dict):
+        return []
+
+    md_parts = []
+    score = overall_rubric.get("score", "")
+    md_parts.append(f"\n**Rubric v1整体旁路评分**：{score}\n")
+
+    components = overall_rubric.get("components", {})
+    if isinstance(components, dict):
+        labels = {
+            "question_average": "逐题Rubric加权均分",
+            "expression_consistency": "全场表达稳定性",
+            "job_fit": "岗位匹配度",
+            "risk_adjustment": "风险调整",
+        }
+        for key, label in labels.items():
+            item = components.get(key, {})
+            if isinstance(item, dict):
+                md_parts.append(
+                    f"- {label}：{item.get('score', '-')}，{item.get('reason', '')}"
+                )
+    return md_parts
+
+
 async def generate_markdown_node(state: AgentState):
     await update_mysql("开始生成markdown结果", record_id=state["record_id"])
     interview_topic_list = state['interview_topic_list']
@@ -72,7 +98,10 @@ async def generate_markdown_node(state: AgentState):
     md_parts.append(f"\n{interview_advice['overall_comment']}\n")
 
     md_parts.append("### 2、整体评分：\n")
-    md_parts.append(f"\n{interview_advice['overall_score']}\n")
+    md_parts.append(f"\n**模型整体评分**：{interview_advice['overall_score']}\n")
+    md_parts.extend(
+        _format_overall_rubric_summary(interview_advice.get("overall_rubric"))
+    )
 
     md_parts.append("### 3、优势:\n")
     for strength in interview_advice["strengths"]:

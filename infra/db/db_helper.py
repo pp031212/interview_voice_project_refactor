@@ -111,6 +111,15 @@ class DatabaseHelper:
                     "completed_at",
                     "DATETIME NULL COMMENT '完成时间' AFTER last_progress_at",
                 ),
+                (
+                    "overall_rubric_score",
+                    "FLOAT NULL COMMENT 'Rubric整体评分' AFTER interview_score",
+                ),
+                (
+                    "overall_rubric_json",
+                    "LONGTEXT NULL COMMENT 'Rubric整体评分详情JSON' "
+                    "AFTER overall_rubric_score",
+                ),
             ]
 
             for column_name, column_definition in columns_to_add:
